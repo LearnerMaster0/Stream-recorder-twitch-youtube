@@ -1520,8 +1520,16 @@ class StreamRecorderApp:
             await self.state.update_status(channel, StreamStatus.ERROR, "No files found")
             return
 
-        # Filter to only existing files
-        existing_files = [f for f in recording_files if Path(f).exists()]
+        # Verify every expected segment exists before processing the session.
+        missing_files = [f for f in recording_files if not Path(f).exists()]
+        if missing_files:
+            missing_names = ", ".join(Path(item).name for item in missing_files)
+            error = f"Recording segment(s) missing; session retained for recovery: {missing_names}"
+            logger.error(error)
+            await self.state.update_status(channel, StreamStatus.ERROR, error)
+            return
+
+        existing_files = list(recording_files)
         if not existing_files:
             logger.error(f"Recording files not found: {recording_files}")
             await self.state.update_status(channel, StreamStatus.ERROR, "Files not found")
