@@ -73,6 +73,19 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.recording.fragment_retries, 8)
         self.assertEqual(config.splitting.default_size_gb, 1.8)
 
+
+    def test_normalizes_bare_youtube_handles(self):
+        data = dict(BASE_CONFIG)
+        data["platform"] = "youtube"
+        data["youtube"] = {"channels": ["ExampleChannel", "@AlreadyHandle", "UC1234567890"]}
+
+        config = load_config(self.write_config(data))
+
+        self.assertEqual(
+            config.youtube.channels,
+            ["@ExampleChannel", "@AlreadyHandle", "UC1234567890"],
+        )
+
     def test_rejects_invalid_positive_sizes(self):
         data = dict(BASE_CONFIG)
         data["splitting"] = {"default_size_gb": 0}
