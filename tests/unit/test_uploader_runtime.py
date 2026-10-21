@@ -105,6 +105,42 @@ class UploaderRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(not item.success for item in result.results))
         self.assertTrue(all("simulated Telegram album failure" in item.error for item in result.results))
 
+    async def test_partial_resume_preserves_original_part_numbers_and_album_groups(self):
+        uploader = TelegramUploader(1, "hash", -1001)
+        calls = []
+
+        async def fake_upload_album(**kwargs):
+            calls.append(kwargs)
+            return [
+                UploadResult(path, part_number + 100, True)
+                for path, part_number in zip(
+                    kwargs["file_paths"],
+                    kwargs["part_numbers_override"],
+                )
+            ]
+
+        uploader._client = object()
+        uploader._upload_album = fake_upload_album
+
+        result = await uploader.upload_stream_parts(
+            stream_info=StreamInfo(channel="channel", title="title", category="cat"),
+            file_paths=["part003.mp4", "part007.mp4", "part011.mp4"],
+            start_part_num=3,
+            total_parts_override=12,
+            album_index_offset=0,
+            album_total_override=2,
+            part_numbers_override=[3, 7, 11],
+        )
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0]["file_paths"], ["part003.mp4", "part007.mp4"])
+        self.assertEqual(calls[0]["part_numbers_override"], [3, 7])
+        self.assertEqual(calls[0]["album_index"], 1)
+        self.assertEqual(calls[1]["file_paths"], ["part011.mp4"])
+        self.assertEqual(calls[1]["part_numbers_override"], [11])
+        self.assertEqual(calls[1]["album_index"], 2)
+        self.assertEqual([item.message_id for item in result.results], [103, 107, 111])
+
     async def test_upload_stream_parts_resume_numbering_for_albums(self):
         uploader = TelegramUploader(1, "hash", -1001)
         calls = []
