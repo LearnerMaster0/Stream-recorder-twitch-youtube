@@ -74,7 +74,7 @@ class RecordingConfig:
 class SplittingConfig:
     """File splitting settings."""
     # Size will be determined dynamically based on Telegram Premium status
-    # 4 GB for Premium, 2 GB for regular accounts
+    # Conservative upload targets: 3.8 GB Premium, 1.8 GB regular accounts
     default_size_gb: float = 1.8
     premium_size_gb: float = 3.8
 
@@ -84,7 +84,7 @@ class CompressionConfig:
     """Video compression settings."""
     enabled: bool = False
     # Target size in MB, will be adjusted based on Premium status
-    # 4000 MB (4 GB) for Premium, 2000 MB (2 GB) for regular
+    # Conservative upload targets: 3800 MB Premium, 1900 MB regular
     default_target_size_mb: int = 1900
     premium_target_size_mb: int = 3800
     audio_bitrate_kbps: int = 128
