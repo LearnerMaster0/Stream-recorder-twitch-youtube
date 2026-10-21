@@ -75,18 +75,18 @@ class SplittingConfig:
     """File splitting settings."""
     # Size will be determined dynamically based on Telegram Premium status
     # 4 GB for Premium, 2 GB for regular accounts
-    default_size_gb: float = 2.0
-    premium_size_gb: float = 4.0
+    default_size_gb: float = 1.8
+    premium_size_gb: float = 3.8
 
 
 @dataclass
 class CompressionConfig:
     """Video compression settings."""
-    enabled: bool = True
+    enabled: bool = False
     # Target size in MB, will be adjusted based on Premium status
     # 4000 MB (4 GB) for Premium, 2000 MB (2 GB) for regular
-    default_target_size_mb: int = 2000
-    premium_target_size_mb: int = 4000
+    default_target_size_mb: int = 1900
+    premium_target_size_mb: int = 3800
     audio_bitrate_kbps: int = 128
     two_pass: bool = True
 
@@ -387,15 +387,15 @@ def load_config(config_path: str = "config.yaml") -> Config:
     
     splitting_data = require_mapping(data.get('splitting', {}), 'splitting')
     splitting_config = SplittingConfig(
-        default_size_gb=positive_float(splitting_data.get('default_size_gb'), 2.0, 'splitting.default_size_gb'),
-        premium_size_gb=positive_float(splitting_data.get('premium_size_gb'), 4.0, 'splitting.premium_size_gb')
+        default_size_gb=positive_float(splitting_data.get('default_size_gb'), 1.8, 'splitting.default_size_gb'),
+        premium_size_gb=positive_float(splitting_data.get('premium_size_gb'), 3.8, 'splitting.premium_size_gb')
     )
     
     compression_data = require_mapping(data.get('compression', {}), 'compression')
     compression_config = CompressionConfig(
-        enabled=as_bool(compression_data.get('enabled'), True, 'compression.enabled'),
-        default_target_size_mb=positive_int(compression_data.get('default_target_size_mb'), 2000, 'compression.default_target_size_mb'),
-        premium_target_size_mb=positive_int(compression_data.get('premium_target_size_mb'), 4000, 'compression.premium_target_size_mb'),
+        enabled=as_bool(compression_data.get('enabled'), False, 'compression.enabled'),
+        default_target_size_mb=positive_int(compression_data.get('default_target_size_mb'), 1900, 'compression.default_target_size_mb'),
+        premium_target_size_mb=positive_int(compression_data.get('premium_target_size_mb'), 3800, 'compression.premium_target_size_mb'),
         audio_bitrate_kbps=positive_int(compression_data.get('audio_bitrate_kbps'), 128, 'compression.audio_bitrate_kbps'),
         two_pass=as_bool(compression_data.get('two_pass'), True, 'compression.two_pass')
     )
