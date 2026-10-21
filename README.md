@@ -304,6 +304,8 @@ Most important static keys:
 
 ### Recording quality and Telegram file sizes
 
+Telegram album uploads now keep a result for every requested file: missing local files, incomplete message responses, and album-chunk exceptions are recorded as failures so the recovery flow can identify what still needs attention.
+
 YouTube channel handles may be entered with or without the leading `@`; bare handles are normalized automatically so state tracking treats them as YouTube sources.
 
 The default format selector is `bv*+ba/b`: use the best available video and audio streams when supported, and fall back to the best combined format. This can select 1080p when the source exposes it, but the source's available formats and YouTube's live-stream restrictions still determine the actual quality. For a fresh configuration that omits these fields, the recorder also defaults to `live_from_start: true`, MPEG-TS capture, and 30 retries (plus 10 fragment retries) to better tolerate long live sessions.
