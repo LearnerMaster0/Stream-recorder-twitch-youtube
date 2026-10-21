@@ -469,6 +469,13 @@ class StreamRecorder:
                 if self.cookies_file and Path(self.cookies_file).exists():
                     cmd.extend(['--cookies', self.cookies_file])
 
+                # Keep the command lean, but honor configured retries for long live captures.
+                cmd.extend([
+                    '--retries', self._retry_value(self.retries),
+                    '--fragment-retries', self._retry_value(self.fragment_retries),
+                    '--socket-timeout', '120',
+                ])
+
                 # Respect the configured quality in YouTube live-from-start mode too.
                 cmd.extend(['--format', self.format_spec])
                 cmd.append('--live-from-start')
