@@ -61,12 +61,12 @@ class RecordingConfig:
     output_dir: str = "./recordings"
     temp_dir: str = "./temp"
     format: str = "bv*+ba/b"
-    retries: int = 10
+    retries: int = 30
     fragment_retries: int = 10
-    live_from_start: bool = False
+    live_from_start: bool = True
     cookies_file: str = ""  # Path to cookies file, empty to disable
     move_atom_to_front: bool = True  # Move moov atom for fast start
-    use_mpegts: bool = False  # Use MPEG-TS container for recording
+    use_mpegts: bool = True  # Use MPEG-TS container for resilient long live captures
     phantom_filter: PhantomFilterConfig = field(default_factory=PhantomFilterConfig)
 
 
@@ -368,12 +368,12 @@ def load_config(config_path: str = "config.yaml") -> Config:
         output_dir=as_str(recording_data.get('output_dir'), './recordings', 'recording.output_dir'),
         temp_dir=as_str(recording_data.get('temp_dir'), './temp', 'recording.temp_dir'),
         format=as_str(recording_data.get('format'), 'bv*+ba/b', 'recording.format'),
-        retries=as_int(recording_data.get('retries'), 10, 'recording.retries', min_value=0),
+        retries=as_int(recording_data.get('retries'), 30, 'recording.retries', min_value=0),
         fragment_retries=as_int(recording_data.get('fragment_retries'), 10, 'recording.fragment_retries', min_value=0),
-        live_from_start=as_bool(recording_data.get('live_from_start'), False, 'recording.live_from_start'),
+        live_from_start=as_bool(recording_data.get('live_from_start'), True, 'recording.live_from_start'),
         cookies_file=as_str(recording_data.get('cookies_file'), '', 'recording.cookies_file'),
         move_atom_to_front=as_bool(recording_data.get('move_atom_to_front'), True, 'recording.move_atom_to_front'),
-        use_mpegts=as_bool(recording_data.get('use_mpegts'), False, 'recording.use_mpegts'),
+        use_mpegts=as_bool(recording_data.get('use_mpegts'), True, 'recording.use_mpegts'),
         phantom_filter=PhantomFilterConfig(
             enabled=as_bool(phantom_data.get('enabled'), True, 'recording.phantom_filter.enabled'),
             min_duration_sec=as_int(phantom_data.get('min_duration_sec'), 60, 'recording.phantom_filter.min_duration_sec', min_value=0),
