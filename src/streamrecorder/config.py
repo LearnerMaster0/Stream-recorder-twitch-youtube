@@ -496,7 +496,7 @@ twitch:
 recording:
   output_dir: ./recordings
   temp_dir: ./temp
-  format: best  # yt-dlp format string
+  format: "bv*+ba/b"  # Best video + audio; fallback to best combined format
   retries: 10
   fragment_retries: 10
   live_from_start: true  # Try to record from stream start
@@ -511,13 +511,13 @@ recording:
 
 splitting:
   # File size limit based on Telegram account type
-  default_size_gb: 2.0   # Regular account limit
-  premium_size_gb: 4.0   # Premium account limit
+  default_size_gb: 1.8   # Safe upload size for regular accounts
+  premium_size_gb: 3.8   # Safe upload size for Premium accounts
 
 compression:
-  enabled: true
-  default_target_size_mb: 2000   # 2 GB for regular accounts
-  premium_target_size_mb: 4000   # 4 GB for Premium accounts
+  enabled: false
+  default_target_size_mb: 1900   # Safe target for regular accounts
+  premium_target_size_mb: 3800   # Safe target for Premium accounts
   audio_bitrate_kbps: 128
   two_pass: true  # Better quality, slower
 
