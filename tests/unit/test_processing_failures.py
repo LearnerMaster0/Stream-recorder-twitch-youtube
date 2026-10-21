@@ -258,7 +258,7 @@ class ProcessingFailureTests(unittest.IsolatedAsyncioTestCase):
                     returncode = 0
 
                     async def communicate(self):
-                        return b"10.0\\n", b""
+                        return b"10.0\n", b""
 
                 return Proc()
 
