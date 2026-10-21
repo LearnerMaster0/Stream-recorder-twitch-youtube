@@ -175,6 +175,9 @@ class ConfigTests(unittest.TestCase):
     def test_default_recording_format_prefers_best_video_and_audio(self):
         config = load_config(self.write_config(BASE_CONFIG))
         self.assertEqual(config.recording.format, "bv*+ba/b")
+        self.assertEqual(config.recording.retries, 30)
+        self.assertTrue(config.recording.live_from_start)
+        self.assertTrue(config.recording.use_mpegts)
         self.assertFalse(config.compression.enabled)
         self.assertEqual(config.splitting.default_size_gb, 1.8)
         self.assertEqual(config.splitting.premium_size_gb, 3.8)
