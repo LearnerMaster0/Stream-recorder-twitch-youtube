@@ -1530,8 +1530,10 @@ class StreamRecorderApp:
         if len(existing_files) > 1:
             logger.info(f"📼 Processing {len(existing_files)} segments in session {state.session_id}")
 
-        # VALIDATE: Check each file is readable before processing
+        # VALIDATE every segment before processing. If one segment is unreadable,
+        # do not silently publish the remaining segments as a complete recording.
         valid_files = []
+        invalid_files = []
         for recording_file in existing_files:
             validate_proc = None
             try:
@@ -1545,14 +1547,27 @@ class StreamRecorderApp:
                 if duration_str and validate_proc.returncode == 0:
                     valid_files.append(recording_file)
                 else:
-                    logger.warning(f"Segment corrupted/incomplete, skipping: {Path(recording_file).name}")
+                    invalid_files.append(recording_file)
+                    logger.warning(f"Segment corrupted/incomplete: {Path(recording_file).name}")
             except asyncio.TimeoutError:
                 if validate_proc and validate_proc.returncode is None:
                     validate_proc.kill()
                     await validate_proc.wait()
-                logger.warning(f"Timed out validating segment, skipping: {Path(recording_file).name}")
+                invalid_files.append(recording_file)
+                logger.warning(f"Timed out validating segment: {Path(recording_file).name}")
             except Exception as e:
+                invalid_files.append(recording_file)
                 logger.warning(f"Failed to validate segment {Path(recording_file).name}: {e}")
+
+        if invalid_files:
+            invalid_names = ", ".join(Path(path).name for path in invalid_files)
+            error = (
+                "One or more recording segments failed validation; "
+                f"preserving the complete session for recovery: {invalid_names}"
+            )
+            logger.error(error)
+            await self.state.update_status(channel, StreamStatus.ERROR, error)
+            return
 
         if not valid_files:
             logger.error("All segments are corrupted or incomplete")
