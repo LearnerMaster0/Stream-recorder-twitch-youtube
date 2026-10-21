@@ -85,6 +85,34 @@ class StateManagerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(loaded.source_id, "youtube:@channel")
             self.assertEqual(loaded.session_id, "session-1")
 
+    async def test_uploaded_part_mapping_survives_sqlite_restart(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.sqlite3"
+            manager = StateManager(str(state_path))
+            await manager.create_stream(
+                "channel",
+                title="title",
+                status=StreamStatus.UPLOADING,
+                source_id="youtube:@channel",
+                session_id="session-upload",
+            )
+            await manager.set_uploaded_part(
+                "channel",
+                str(Path(tmpdir) / "part-001.mp4"),
+                98765,
+            )
+
+            reloaded = StateManager(str(state_path))
+            await reloaded.load()
+            loaded = await reloaded.get_state("channel")
+
+            self.assertEqual(
+                loaded.uploaded_parts,
+                {str(Path(tmpdir) / "part-001.mp4"): 98765},
+            )
+            self.assertIn(98765, loaded.message_ids.upload_msgs)
+            self.assertEqual(loaded.status, StreamStatus.UPLOADING)
+
     async def test_save_removes_superseded_active_rows_for_same_channel(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = Path(tmpdir) / "state.sqlite3"
