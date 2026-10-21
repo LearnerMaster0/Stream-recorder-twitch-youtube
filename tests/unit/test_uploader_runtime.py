@@ -49,6 +49,22 @@ class AlbumResponseMappingTests(unittest.TestCase):
         self.assertFalse(results[0].success)
         self.assertIsNotNone(results[0].error)
 
+    def test_missing_file_is_reported_and_does_not_shift_album_message_mapping(self):
+        messages = [types.SimpleNamespace(id=101), types.SimpleNamespace(id=103)]
+
+        results = _album_upload_results(
+            ["part1.mp4", "missing.mp4", "part3.mp4"],
+            messages,
+            valid_indices=[0, 2],
+        )
+
+        self.assertEqual(len(results), 3)
+        self.assertEqual([result.message_id for result in results], [101, None, 103])
+        self.assertTrue(results[0].success)
+        self.assertFalse(results[1].success)
+        self.assertIn("missing", results[1].error.lower())
+        self.assertTrue(results[2].success)
+
 
 class UploaderRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_upload_runtime_serializes_and_restores_settings(self):
