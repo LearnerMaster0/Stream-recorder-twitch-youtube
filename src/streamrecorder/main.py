@@ -1618,6 +1618,7 @@ class StreamRecorderApp:
 
                 # Split upload-safe MP4 sources and collect parts in order.
                 all_split_files = []
+                split_failures = []
                 for i, recording_file in enumerate(upload_source_files):
                     segment_name = Path(recording_file).name
                     if len(upload_source_files) > 1:
@@ -1631,10 +1632,12 @@ class StreamRecorderApp:
                         all_split_files.extend(split_result.output_files)
                         logger.info(f"  → {len(split_result.output_files)} parts")
                     else:
-                        logger.warning(f"Split failed for {segment_name}: {split_result.error}")
+                        error = f"Split failed for {segment_name}: {split_result.error}"
+                        split_failures.append(error)
+                        logger.error(error)
 
-                if not all_split_files:
-                    raise Exception("No files after splitting")
+                if not all_split_files and not split_failures:
+                    split_failures.append("No files after splitting")
 
                 # CROSS MODE: Also split any linked recordings (YT + Twitch)
                 if state.linked_recording_files:
@@ -1659,7 +1662,22 @@ class StreamRecorderApp:
                                 all_split_files.extend(linked_result.output_files)
                                 logger.info(f"Cross mode: Added {len(linked_result.output_files)} parts from linked recording")
                             else:
-                                logger.warning(f"Cross mode: Failed to split linked file: {linked_result.error}")
+                                error = (
+                                    f"Cross mode: Failed to split linked file "
+                                    f"{Path(linked_file).name}: {linked_result.error}"
+                                )
+                                split_failures.append(error)
+                                logger.error(error)
+
+                # Never upload/archive a partial session after silently dropping
+                # one of its recording segments. Keep source files and retry later.
+                if split_failures:
+                    raise RuntimeError(
+                        "Upload preparation incomplete; preserving recordings for recovery: "
+                        + " | ".join(split_failures)
+                    )
+                if not all_split_files:
+                    raise RuntimeError("No files after splitting; preserving recordings for recovery")
 
                 await self.state.set_split_files(channel, all_split_files)
 
