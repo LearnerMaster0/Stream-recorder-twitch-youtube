@@ -304,7 +304,7 @@ Most important static keys:
 
 ### Recording quality and Telegram file sizes
 
-The default format selector is `bv*+ba/b`: use the best available video and audio streams when supported, and fall back to the best combined format. This can select 1080p when the source exposes it, but the source's available formats and YouTube's live-stream restrictions still determine the actual quality.
+The default format selector is `bv*+ba/b`: use the best available video and audio streams when supported, and fall back to the best combined format. This can select 1080p when the source exposes it, but the source's available formats and YouTube's live-stream restrictions still determine the actual quality. For a fresh configuration that omits these fields, the recorder also defaults to `live_from_start: true`, MPEG-TS capture, and 30 retries (plus 10 fragment retries) to better tolerate long live sessions.
 
 `recording.live_from_start: true` asks yt-dlp to capture from the beginning when the platform allows it. If YouTube rejects that mode with a 403 error, the recorder retries without `--live-from-start`.
 
