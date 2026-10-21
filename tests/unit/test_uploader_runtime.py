@@ -85,6 +85,26 @@ class UploaderRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(uploader.upload_parallelism, 1)
         self.assertEqual(uploader.upload_speed_limit_mbps, 0.0)
 
+    async def test_album_exception_returns_failed_result_for_every_file(self):
+        uploader = TelegramUploader(1, "hash", -1001)
+        uploader._client = object()
+
+        async def fail_album(**kwargs):
+            raise RuntimeError("simulated Telegram album failure")
+
+        uploader._upload_album = fail_album
+        result = await uploader.upload_stream_parts(
+            stream_info=StreamInfo(channel="channel", title="title", category="cat"),
+            file_paths=[f"part{i}.mp4" for i in range(1, 4)],
+            total_parts_override=3,
+        )
+
+        self.assertEqual(result.total_parts, 3)
+        self.assertEqual(result.failed_uploads, 3)
+        self.assertEqual(len(result.results), 3)
+        self.assertTrue(all(not item.success for item in result.results))
+        self.assertTrue(all("simulated Telegram album failure" in item.error for item in result.results))
+
     async def test_upload_stream_parts_resume_numbering_for_albums(self):
         uploader = TelegramUploader(1, "hash", -1001)
         calls = []
