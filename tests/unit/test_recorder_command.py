@@ -58,6 +58,9 @@ class RecorderCommandTests(unittest.IsolatedAsyncioTestCase):
             format_index = command.index("--format")
             self.assertEqual(command[format_index + 1], "bestvideo*+bestaudio/best")
             self.assertIn("--live-from-start", command)
+            self.assertEqual(command[command.index("--retries") + 1], "10")
+            self.assertEqual(command[command.index("--fragment-retries") + 1], "10")
+            self.assertEqual(command[command.index("--socket-timeout") + 1], "120")
             self.assertEqual(command[-1], stream_info.stream_url)
 
     async def test_youtube_403_falls_back_without_live_from_start(self):
