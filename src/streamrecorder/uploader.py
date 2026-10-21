@@ -804,15 +804,25 @@ class TelegramUploader:
                 
                 self._logger.info(f"Album uploaded: {len(messages)} files with metadata and thumbnails")
                 
-                results = [
-                    UploadResult(
-                        file_path=valid_files[i],
-                        message_id=msg.id if i < len(messages) else None,
-                        success=True
-                    )
-                    for i, msg in enumerate(messages)
-                ]
-                
+                # Keep one result per input file. Telegram may return fewer
+                # messages than requested; those files must remain marked failed
+                # so the caller can retry them instead of silently losing track.
+                results = []
+                for i, file_path in enumerate(valid_files):
+                    if i < len(messages):
+                        results.append(UploadResult(
+                            file_path=file_path,
+                            message_id=messages[i].id,
+                            success=True
+                        ))
+                    else:
+                        results.append(UploadResult(
+                            file_path=file_path,
+                            message_id=None,
+                            success=False,
+                            error="Telegram returned fewer album messages than uploaded files"
+                        ))
+
                 return results
                 
             except Exception as e:
