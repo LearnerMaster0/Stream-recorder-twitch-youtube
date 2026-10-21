@@ -176,7 +176,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
     if not config_path.exists():
         raise FileNotFoundError(
             f"Configuration file not found: {config_path}\n"
-            f"Please create a config.yaml file. See config.example.yaml for reference."
+            f"Please create a config.yaml file. See config.yaml.example for reference."
         )
     
     with open(config_path, 'r', encoding='utf-8') as f:
