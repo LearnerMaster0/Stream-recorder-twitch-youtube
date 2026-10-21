@@ -60,7 +60,7 @@ class RecordingConfig:
     """Recording settings."""
     output_dir: str = "./recordings"
     temp_dir: str = "./temp"
-    format: str = "best"
+    format: str = "bv*+ba/b"
     retries: int = 10
     fragment_retries: int = 10
     live_from_start: bool = False
