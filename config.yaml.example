@@ -3,7 +3,7 @@
 
 # Platform: twitch | youtube | both | cross
 # cross = monitor YouTube and attach Twitch continuation when stream switches platform
-platform: twitch
+platform: youtube
 
 telegram:
   api_id: 12345678                    # Get from https://my.telegram.org
