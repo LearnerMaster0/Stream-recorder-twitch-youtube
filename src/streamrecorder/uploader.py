@@ -610,16 +610,37 @@ class TelegramUploader:
                 results=[result]
             )
         
-        # Split into chunks of 10 (Telegram album limit)
-        chunks = [file_paths[i:i+10] for i in range(0, len(file_paths), 10)]
+        # Split into albums of at most 10. During recovery, keep parts from
+        # their original album together so numbering/captions do not drift.
+        if part_numbers_override is not None:
+            if len(part_numbers_override) != len(file_paths):
+                raise ValueError("part_numbers_override must match file_paths length")
+            grouped = {}
+            for path, part_number in zip(file_paths, part_numbers_override):
+                grouped.setdefault((part_number - 1) // 10, []).append((path, part_number))
+            chunk_items = [grouped[key] for key in sorted(grouped)]
+            chunks = [[item[0] for item in items] for items in chunk_items]
+            chunk_part_numbers = [[item[1] for item in items] for items in chunk_items]
+        else:
+            chunks = [file_paths[i:i+10] for i in range(0, len(file_paths), 10)]
+            chunk_part_numbers = [
+                list(range(start_part_num + i, start_part_num + i + len(chunk)))
+                for i, chunk in zip(range(0, len(file_paths), 10), chunks)
+            ]
         album_total = album_total_override or len(chunks)
-        
+
         self._logger.info(f"Sending as {len(chunks)} album(s)")
-        
+
         # Upload albums sequentially to preserve order
         all_results: List[UploadResult] = []
         for chunk_idx, chunk in enumerate(chunks):
-            start_part = start_part_num + chunk_idx * 10
+            part_numbers = chunk_part_numbers[chunk_idx]
+            start_part = part_numbers[0] if part_numbers else start_part_num + chunk_idx * 10
+            album_index = (
+                (part_numbers[0] - 1) // 10 + 1
+                if part_numbers_override is not None and part_numbers
+                else album_index_offset + chunk_idx + 1
+            )
             try:
                 result = await self._upload_album(
                     stream_info=stream_info,
@@ -627,12 +648,9 @@ class TelegramUploader:
                     start_part_num=start_part,
                     total_parts=total_parts,
                     duration_str=duration_str if chunk_idx == 0 else "",
-                    album_index=album_index_offset + chunk_idx + 1,
+                    album_index=album_index,
                     album_total=album_total,
-                    part_numbers_override=(
-                        part_numbers_override[chunk_idx * 10:(chunk_idx + 1) * 10]
-                        if part_numbers_override is not None else None
-                    ),
+                    part_numbers_override=part_numbers,
                     target_channel_id=target_channel_id
                 )
             except Exception as e:
