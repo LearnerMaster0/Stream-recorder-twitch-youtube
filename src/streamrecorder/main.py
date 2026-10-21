@@ -1775,6 +1775,9 @@ class StreamRecorderApp:
                                 total_parts_override=len(split_files),
                                 album_index_offset=album_index_offset,
                                 album_total_override=album_total,
+                                part_numbers_override=[
+                                    split_files.index(path) + 1 for path in pending_split_files
+                                ],
                             )
 
                         for result in pending.results:
