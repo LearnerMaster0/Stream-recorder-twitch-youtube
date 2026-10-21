@@ -18,7 +18,36 @@ sys.modules.setdefault("telethon", telethon)
 sys.modules.setdefault("telethon.tl", tl)
 sys.modules.setdefault("telethon.tl.types", tl_types)
 
-from streamrecorder.uploader import BatchUploadResult, TelegramUploader, UploadResult
+from streamrecorder.uploader import BatchUploadResult, TelegramUploader, UploadResult, _album_upload_results
+
+
+class AlbumResponseMappingTests(unittest.TestCase):
+    def test_missing_telegram_album_messages_are_reported_as_failed_files(self):
+        messages = [types.SimpleNamespace(id=101), types.SimpleNamespace(id=102)]
+
+        results = _album_upload_results(
+            ["part1.mp4", "part2.mp4", "part3.mp4"],
+            messages,
+        )
+
+        self.assertEqual(len(results), 3)
+        self.assertTrue(results[0].success)
+        self.assertEqual(results[0].message_id, 101)
+        self.assertTrue(results[1].success)
+        self.assertEqual(results[1].message_id, 102)
+        self.assertFalse(results[2].success)
+        self.assertIsNone(results[2].message_id)
+        self.assertIn("fewer album messages", results[2].error)
+
+    def test_message_without_id_is_not_reported_as_success(self):
+        results = _album_upload_results(
+            ["part1.mp4"],
+            [types.SimpleNamespace(id=None)],
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertFalse(results[0].success)
+        self.assertIsNotNone(results[0].error)
 
 
 class UploaderRuntimeTests(unittest.IsolatedAsyncioTestCase):
