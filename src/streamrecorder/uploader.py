@@ -859,7 +859,7 @@ class TelegramUploader:
                         raise result
                 
                 if not valid_files:
-                    return []
+                    return _album_upload_results(file_paths, [], valid_indices)
                 
                 # Send all media as an album
                 self._logger.info(f"Sending album with {len(media_list)} files...")
