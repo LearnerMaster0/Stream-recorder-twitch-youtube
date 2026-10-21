@@ -322,6 +322,9 @@ recording:
 Notes:
 - file format should be Netscape cookies format;
 - use YouTube cookies for YouTube monitoring/recording;
+
+YouTube channel handles may be entered with or without the leading `@`; bare handles are normalized automatically so state tracking treats them as YouTube sources.
+
 - use Twitch cookies if your Twitch recording setup needs them;
 - a combined cookies file can be used for `both` or `cross` mode;
 - set it to `""` to disable cookies.
