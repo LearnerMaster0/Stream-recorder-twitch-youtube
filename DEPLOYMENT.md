@@ -27,6 +27,14 @@ This application is a long-running background worker. It records media to disk, 
 5. Ensure the configured output, temporary, data, and log directories are on persistent storage.
 6. Start the worker with `python main.py`. First-time Telegram login may ask for a code and, if enabled, a two-step verification password.
 
+## Android/mobile-only workflow
+
+A phone browser can edit the repository, configure a host, and monitor GitHub Actions, but GitHub Actions is not a suitable always-on recorder: workflow jobs are time-limited and their temporary disks are not durable recording storage.
+
+Running directly on Android through Termux may be possible for experiments, but it is not the recommended production setup for unattended 3–5 hour recordings. Android may suspend background processes, battery optimization can stop work, mobile storage can fill, and the splitter requires a working `MP4Box` binary as well as FFmpeg. Before relying on a Termux setup, verify that Python dependencies and both media tools are installable for the phone's CPU/Android version and test a short stream while the screen is off.
+
+The most practical mobile-only operating model is: configure and deploy from the phone browser, run the worker on a persistent remote Linux VM/worker with attached storage, and control/check it through Telegram. The worker still needs its own Telegram login session created securely; never paste API hashes, session files, or two-step passwords into public issues or commits.
+
 ## Free-hosting limitations
 
 Do not rely on a free static-site or short-lived serverless host for 3–5 hour recordings. The process must remain alive and the local filesystem must survive restarts.
