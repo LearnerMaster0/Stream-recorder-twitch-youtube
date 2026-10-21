@@ -367,7 +367,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
     recording_config = RecordingConfig(
         output_dir=as_str(recording_data.get('output_dir'), './recordings', 'recording.output_dir'),
         temp_dir=as_str(recording_data.get('temp_dir'), './temp', 'recording.temp_dir'),
-        format=as_str(recording_data.get('format'), 'best', 'recording.format'),
+        format=as_str(recording_data.get('format'), 'bv*+ba/b', 'recording.format'),
         retries=as_int(recording_data.get('retries'), 10, 'recording.retries', min_value=0),
         fragment_retries=as_int(recording_data.get('fragment_retries'), 10, 'recording.fragment_retries', min_value=0),
         live_from_start=as_bool(recording_data.get('live_from_start'), False, 'recording.live_from_start'),
