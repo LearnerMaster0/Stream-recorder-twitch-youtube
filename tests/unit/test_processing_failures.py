@@ -233,6 +233,31 @@ class ProcessingFailureTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(state_store.status_updates[-1][0], StreamStatus.SENDING_COMPRESSED)
             app._cleanup_files.assert_not_awaited()
 
+    async def test_missing_segment_preserves_session_instead_of_processing_remaining_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            good = Path(tmpdir) / "recording_segment_1.mp4"
+            missing = Path(tmpdir) / "recording_segment_2.mp4"
+            good.write_bytes(b"good segment")
+            state = StreamState(
+                channel="channel",
+                stream_id="stream",
+                title="title",
+                status=StreamStatus.PROCESSING,
+                recording_files=[str(good), str(missing)],
+            )
+            state_store = StateStub(state)
+            app = self.make_app(state_store, tmpdir)
+
+            await StreamRecorderApp._process_recording(app, state)
+
+            self.assertEqual(state_store.status_updates[-1][0], StreamStatus.ERROR)
+            self.assertIn("missing", state_store.status_updates[-1][1].lower())
+            app.splitter.split_file.assert_not_awaited()
+            app.uploader.upload_stream_parts.assert_not_awaited()
+            self.assertTrue(good.exists())
+            self.assertFalse(state_store.completed)
+            app._cleanup_files.assert_not_awaited()
+
     async def test_invalid_segment_preserves_entire_session_instead_of_skipping_it(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             good = Path(tmpdir) / "recording_segment_1.mp4"
