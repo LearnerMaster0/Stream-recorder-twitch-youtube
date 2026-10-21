@@ -302,6 +302,14 @@ Most important static keys:
 - `state.state_file` and `control.runtime_config_file`;
 - `control.enabled`, `control.group_id`, `control.allowed_user_ids`.
 
+### Recording quality and Telegram file sizes
+
+The default format selector is `bv*+ba/b`: use the best available video and audio streams when supported, and fall back to the best combined format. This can select 1080p when the source exposes it, but the source's available formats and YouTube's live-stream restrictions still determine the actual quality.
+
+`recording.live_from_start: true` asks yt-dlp to capture from the beginning when the platform allows it. If YouTube rejects that mode with a 403 error, the recorder retries without `--live-from-start`.
+
+To reduce Telegram upload-size failures, the default split targets are 1.8 GB for regular accounts and 3.8 GB for Premium. Compression is disabled by default so the original recording quality is preserved; it can be enabled explicitly in the `compression` section or per target.
+
 ### Cookies
 
 Set `recording.cookies_file` in `config.yaml`, for example:
