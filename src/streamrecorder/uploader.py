@@ -35,6 +35,27 @@ class UploadResult:
     error: Optional[str] = None
 
 
+def _album_upload_results(file_paths: List[str], messages: List[object]) -> List[UploadResult]:
+    """Return a result for every requested file, including missing Telegram responses."""
+    results: List[UploadResult] = []
+    for i, file_path in enumerate(file_paths):
+        if i < len(messages):
+            results.append(UploadResult(
+                file_path=file_path,
+                message_id=getattr(messages[i], "id", None),
+                success=getattr(messages[i], "id", None) is not None,
+                error=None if getattr(messages[i], "id", None) is not None else "Telegram returned a message without an ID",
+            ))
+        else:
+            results.append(UploadResult(
+                file_path=file_path,
+                message_id=None,
+                success=False,
+                error="Telegram returned fewer album messages than uploaded files",
+            ))
+    return results
+
+
 @dataclass
 class BatchUploadResult:
     """Result of uploading multiple files."""
@@ -807,23 +828,7 @@ class TelegramUploader:
                 # Keep one result per input file. Telegram may return fewer
                 # messages than requested; those files must remain marked failed
                 # so the caller can retry them instead of silently losing track.
-                results = []
-                for i, file_path in enumerate(valid_files):
-                    if i < len(messages):
-                        results.append(UploadResult(
-                            file_path=file_path,
-                            message_id=messages[i].id,
-                            success=True
-                        ))
-                    else:
-                        results.append(UploadResult(
-                            file_path=file_path,
-                            message_id=None,
-                            success=False,
-                            error="Telegram returned fewer album messages than uploaded files"
-                        ))
-
-                return results
+                return _album_upload_results(valid_files, messages)
                 
             except Exception as e:
                 error_str = str(e)
