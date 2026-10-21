@@ -35,16 +35,32 @@ class UploadResult:
     error: Optional[str] = None
 
 
-def _album_upload_results(file_paths: List[str], messages: List[object]) -> List[UploadResult]:
+def _album_upload_results(
+    file_paths: List[str],
+    messages: List[object],
+    valid_indices: Optional[List[int]] = None,
+) -> List[UploadResult]:
     """Return a result for every requested file, including missing Telegram responses."""
+    message_indices = valid_indices if valid_indices is not None else list(range(len(file_paths)))
+    message_position = {file_index: position for position, file_index in enumerate(message_indices)}
     results: List[UploadResult] = []
     for i, file_path in enumerate(file_paths):
-        if i < len(messages):
+        if i not in message_position:
             results.append(UploadResult(
                 file_path=file_path,
-                message_id=getattr(messages[i], "id", None),
-                success=getattr(messages[i], "id", None) is not None,
-                error=None if getattr(messages[i], "id", None) is not None else "Telegram returned a message without an ID",
+                message_id=None,
+                success=False,
+                error="File was missing or could not be prepared for Telegram album upload",
+            ))
+            continue
+        position = message_position[i]
+        if position < len(messages):
+            message_id = getattr(messages[position], "id", None)
+            results.append(UploadResult(
+                file_path=file_path,
+                message_id=message_id,
+                success=message_id is not None,
+                error=None if message_id is not None else "Telegram returned a message without an ID",
             ))
         else:
             results.append(UploadResult(
@@ -616,6 +632,10 @@ class TelegramUploader:
                 )
             except Exception as e:
                 self._logger.error(f"Album upload error: {e}")
+                all_results.extend(
+                    UploadResult(path, None, False, f"Album upload error: {e}")
+                    for path in chunk
+                )
                 continue
             
             if isinstance(result, list):
@@ -794,8 +814,11 @@ class TelegramUploader:
                 tasks = [limited_prepare(i, fp) for i, fp in enumerate(file_paths)]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 
-                # Process results (maintain order)
+                # Process results (maintain order), explicitly tracking files that
+                # disappeared or could not be prepared instead of silently dropping them.
+                valid_indices = []
                 for result in sorted([r for r in results if r and not isinstance(r, Exception)], key=lambda x: x['index']):
+                    valid_indices.append(result['index'])
                     valid_files.append(result['file_path'])
                     # Caption только для первого видео в альбоме
                     captions.append(result['caption'] if len(valid_files) == 1 else "")
@@ -828,7 +851,7 @@ class TelegramUploader:
                 # Keep one result per input file. Telegram may return fewer
                 # messages than requested; those files must remain marked failed
                 # so the caller can retry them instead of silently losing track.
-                return _album_upload_results(valid_files, messages)
+                return _album_upload_results(file_paths, messages, valid_indices)
                 
             except Exception as e:
                 error_str = str(e)
