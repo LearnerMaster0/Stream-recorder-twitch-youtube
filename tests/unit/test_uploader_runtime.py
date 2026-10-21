@@ -85,6 +85,21 @@ class UploaderRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(uploader.upload_parallelism, 1)
         self.assertEqual(uploader.upload_speed_limit_mbps, 0.0)
 
+    async def test_album_with_all_missing_files_returns_explicit_failures(self):
+        uploader = TelegramUploader(1, "hash", -1001)
+        uploader._client = object()
+
+        results = await uploader._upload_album(
+            stream_info=StreamInfo(channel="channel", title="title", category="cat"),
+            file_paths=["missing-part1.mp4", "missing-part2.mp4"],
+            start_part_num=1,
+            total_parts=2,
+        )
+
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(not item.success for item in results))
+        self.assertTrue(all("missing" in item.error.lower() for item in results))
+
     async def test_album_exception_returns_failed_result_for_every_file(self):
         uploader = TelegramUploader(1, "hash", -1001)
         uploader._client = object()
