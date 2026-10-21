@@ -172,6 +172,10 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.jobs.control_concurrency, 4)
         self.assertEqual(config.control.audit_log_file, "./logs/audit.log")
 
+    def test_default_recording_format_prefers_best_video_and_audio(self):
+        config = load_config(self.write_config(BASE_CONFIG))
+        self.assertEqual(config.recording.format, "bv*+ba/b")
+
 
 if __name__ == "__main__":
     unittest.main()
