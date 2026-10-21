@@ -352,8 +352,14 @@ def load_config(config_path: str = "config.yaml") -> Config:
     )
     
     youtube_data = require_mapping(data.get('youtube', {}), 'youtube')
+    youtube_channels = as_str_list(youtube_data.get('channels'), [], 'youtube.channels')
+    # Normalize bare handles to @handles so state tracking identifies them as YouTube.
+    youtube_channels = [
+        channel if channel.startswith('@') or channel.startswith('UC') else f'@{channel}'
+        for channel in youtube_channels
+    ]
     youtube_config = YouTubeConfig(
-        channels=as_str_list(youtube_data.get('channels'), [], 'youtube.channels'),
+        channels=youtube_channels,
         check_interval=positive_int(youtube_data.get('check_interval'), 30, 'youtube.check_interval')
     )
     
