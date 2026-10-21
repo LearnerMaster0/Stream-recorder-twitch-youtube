@@ -565,6 +565,7 @@ class TelegramUploader:
         total_parts_override: Optional[int] = None,
         album_index_offset: int = 0,
         album_total_override: Optional[int] = None,
+        part_numbers_override: Optional[List[int]] = None,
     ) -> BatchUploadResult:
         """
         Upload multiple parts of a stream recording as albums.
@@ -628,6 +629,10 @@ class TelegramUploader:
                     duration_str=duration_str if chunk_idx == 0 else "",
                     album_index=album_index_offset + chunk_idx + 1,
                     album_total=album_total,
+                    part_numbers_override=(
+                        part_numbers_override[chunk_idx * 10:(chunk_idx + 1) * 10]
+                        if part_numbers_override is not None else None
+                    ),
                     target_channel_id=target_channel_id
                 )
             except Exception as e:
@@ -670,7 +675,8 @@ class TelegramUploader:
         album_total: int = 1,
         compressed_note: str = "",
         max_retries: int = 5,
-        target_channel_id: Optional[int] = None
+        target_channel_id: Optional[int] = None,
+        part_numbers_override: Optional[List[int]] = None,
     ) -> List[UploadResult]:
         """
         Upload files as a single album (max 10 files) with retry logic.
@@ -709,7 +715,11 @@ class TelegramUploader:
                     if not path.exists():
                         return None
                     
-                    part_num = start_part_num + i
+                    part_num = (
+                        part_numbers_override[i]
+                        if part_numbers_override is not None and i < len(part_numbers_override)
+                        else start_part_num + i
+                    )
                     file_size_mb = path.stat().st_size / (1024 * 1024)
                     
                     # Build caption for the album (only for first item)
