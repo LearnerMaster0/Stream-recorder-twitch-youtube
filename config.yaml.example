@@ -34,7 +34,7 @@ youtube:
 recording:
   output_dir: ./recordings
   temp_dir: ./temp
-  format: b                           # 'b' (best) without yt-dlp deprecation warning
+  format: "bv*+ba/b"                  # Best available video + audio; fallback to best combined format
   retries: 30                         # yt-dlp retries for restartable errors
   fragment_retries: 10                # retries for HLS/DASH fragments
   live_from_start: true               # try to capture from stream start if supported
