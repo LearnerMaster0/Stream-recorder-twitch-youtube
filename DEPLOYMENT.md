@@ -27,6 +27,19 @@ This application is a long-running background worker. It records media to disk, 
 5. Ensure the configured output, temporary, data, and log directories are on persistent storage.
 6. Start the worker with `python main.py`. First-time Telegram login may ask for a code and, if enabled, a two-step verification password.
 
+## Telegram private-chat YouTube link mode
+
+The worker accepts YouTube links sent in a private chat to the Telegram account used by Telethon. Requests are stored in `data/link_requests.sqlite3` and processed one at a time. After recording, the worker replies in that same private chat and sends the video there; it does not publish the recording to the configured channel. Files larger than the account's upload target are split only when required.
+
+Set these Voroa Environment variables:
+
+- `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, and `TELEGRAM_CHANNEL_ID` (the current config loader still requires the channel ID for compatibility, even though manual-link deliveries go to private chats).
+- `TELEGRAM_SESSION_STRING`: a Telethon StringSession generated securely for the account that should receive the links and send the files. Without this, a headless worker may fail because first-time login needs an interactive code.
+- `TELEGRAM_ALLOWED_USER_IDS`: the owner's numeric Telegram user ID. Only IDs in this comma-separated allowlist may submit links. The listener rejects requests until this variable is set.
+- `YOUTUBE_CHANNELS` is optional in link mode. Leave it blank if you only want to send individual links in Telegram.
+
+The queue survives worker restarts, but a recording interrupted by a host restart may be attempted again from its URL and can create a new output file. A live stream can only be recorded from its beginning when YouTube/yt-dlp actually exposes the beginning of that stream; this cannot be guaranteed for every live stream. A Telethon user session is used by this project; it is not a Bot API token session.
+
 ## Android/mobile-only workflow
 
 A phone browser can edit the repository, configure a host, and monitor GitHub Actions, but GitHub Actions is not a suitable always-on recorder: workflow jobs are time-limited and their temporary disks are not durable recording storage.
