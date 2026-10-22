@@ -73,6 +73,19 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.recording.fragment_retries, 8)
         self.assertEqual(config.splitting.default_size_gb, 1.8)
 
+
+    def test_normalizes_bare_youtube_handles(self):
+        data = dict(BASE_CONFIG)
+        data["platform"] = "youtube"
+        data["youtube"] = {"channels": ["ExampleChannel", "@AlreadyHandle", "UC1234567890"]}
+
+        config = load_config(self.write_config(data))
+
+        self.assertEqual(
+            config.youtube.channels,
+            ["@ExampleChannel", "@AlreadyHandle", "UC1234567890"],
+        )
+
     def test_rejects_invalid_positive_sizes(self):
         data = dict(BASE_CONFIG)
         data["splitting"] = {"default_size_gb": 0}
@@ -171,6 +184,18 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.jobs.upload_concurrency, 2)
         self.assertEqual(config.jobs.control_concurrency, 4)
         self.assertEqual(config.control.audit_log_file, "./logs/audit.log")
+
+    def test_default_recording_format_prefers_best_video_and_audio(self):
+        config = load_config(self.write_config(BASE_CONFIG))
+        self.assertEqual(config.recording.format, "bv*+ba/b")
+        self.assertEqual(config.recording.retries, 30)
+        self.assertTrue(config.recording.live_from_start)
+        self.assertTrue(config.recording.use_mpegts)
+        self.assertFalse(config.compression.enabled)
+        self.assertEqual(config.splitting.default_size_gb, 1.8)
+        self.assertEqual(config.splitting.premium_size_gb, 3.8)
+        self.assertEqual(config.compression.default_target_size_mb, 1900)
+        self.assertEqual(config.compression.premium_target_size_mb, 3800)
 
 
 if __name__ == "__main__":

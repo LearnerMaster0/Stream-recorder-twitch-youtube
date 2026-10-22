@@ -35,6 +35,43 @@ class UploadResult:
     error: Optional[str] = None
 
 
+def _album_upload_results(
+    file_paths: List[str],
+    messages: List[object],
+    valid_indices: Optional[List[int]] = None,
+) -> List[UploadResult]:
+    """Return a result for every requested file, including missing Telegram responses."""
+    message_indices = valid_indices if valid_indices is not None else list(range(len(file_paths)))
+    message_position = {file_index: position for position, file_index in enumerate(message_indices)}
+    results: List[UploadResult] = []
+    for i, file_path in enumerate(file_paths):
+        if i not in message_position:
+            results.append(UploadResult(
+                file_path=file_path,
+                message_id=None,
+                success=False,
+                error="File was missing or could not be prepared for Telegram album upload",
+            ))
+            continue
+        position = message_position[i]
+        if position < len(messages):
+            message_id = getattr(messages[position], "id", None)
+            results.append(UploadResult(
+                file_path=file_path,
+                message_id=message_id,
+                success=message_id is not None,
+                error=None if message_id is not None else "Telegram returned a message without an ID",
+            ))
+        else:
+            results.append(UploadResult(
+                file_path=file_path,
+                message_id=None,
+                success=False,
+                error="Telegram returned fewer album messages than uploaded files",
+            ))
+    return results
+
+
 @dataclass
 class BatchUploadResult:
     """Result of uploading multiple files."""
@@ -121,8 +158,19 @@ class TelegramUploader:
             True if connected successfully.
         """
         try:
+            # Cloud hosts have no interactive terminal for phone-code login.
+            # When provided, use a Telethon StringSession from a secret environment
+            # variable; otherwise preserve the existing on-disk session behavior.
+            session_string = os.environ.get("TELEGRAM_SESSION_STRING", "").strip()
+            if session_string:
+                # Import lazily so test doubles that mock ``telethon`` do not need
+                # to implement its optional sessions submodule.
+                from telethon.sessions import StringSession
+                session = StringSession(session_string)
+            else:
+                session = self.session_name
             self._client = TelegramClient(
-                self.session_name,
+                session,
                 self.api_id,
                 self.api_hash
             )
@@ -528,6 +576,7 @@ class TelegramUploader:
         total_parts_override: Optional[int] = None,
         album_index_offset: int = 0,
         album_total_override: Optional[int] = None,
+        part_numbers_override: Optional[List[int]] = None,
     ) -> BatchUploadResult:
         """
         Upload multiple parts of a stream recording as albums.
@@ -572,16 +621,37 @@ class TelegramUploader:
                 results=[result]
             )
         
-        # Split into chunks of 10 (Telegram album limit)
-        chunks = [file_paths[i:i+10] for i in range(0, len(file_paths), 10)]
+        # Split into albums of at most 10. During recovery, keep parts from
+        # their original album together so numbering/captions do not drift.
+        if part_numbers_override is not None:
+            if len(part_numbers_override) != len(file_paths):
+                raise ValueError("part_numbers_override must match file_paths length")
+            grouped = {}
+            for path, part_number in zip(file_paths, part_numbers_override):
+                grouped.setdefault((part_number - 1) // 10, []).append((path, part_number))
+            chunk_items = [grouped[key] for key in sorted(grouped)]
+            chunks = [[item[0] for item in items] for items in chunk_items]
+            chunk_part_numbers = [[item[1] for item in items] for items in chunk_items]
+        else:
+            chunks = [file_paths[i:i+10] for i in range(0, len(file_paths), 10)]
+            chunk_part_numbers = [
+                list(range(start_part_num + i, start_part_num + i + len(chunk)))
+                for i, chunk in zip(range(0, len(file_paths), 10), chunks)
+            ]
         album_total = album_total_override or len(chunks)
-        
+
         self._logger.info(f"Sending as {len(chunks)} album(s)")
-        
+
         # Upload albums sequentially to preserve order
         all_results: List[UploadResult] = []
         for chunk_idx, chunk in enumerate(chunks):
-            start_part = start_part_num + chunk_idx * 10
+            part_numbers = chunk_part_numbers[chunk_idx]
+            start_part = part_numbers[0] if part_numbers else start_part_num + chunk_idx * 10
+            album_index = (
+                (part_numbers[0] - 1) // 10 + 1
+                if part_numbers_override is not None and part_numbers
+                else album_index_offset + chunk_idx + 1
+            )
             try:
                 result = await self._upload_album(
                     stream_info=stream_info,
@@ -589,12 +659,17 @@ class TelegramUploader:
                     start_part_num=start_part,
                     total_parts=total_parts,
                     duration_str=duration_str if chunk_idx == 0 else "",
-                    album_index=album_index_offset + chunk_idx + 1,
+                    album_index=album_index,
                     album_total=album_total,
+                    part_numbers_override=part_numbers,
                     target_channel_id=target_channel_id
                 )
             except Exception as e:
                 self._logger.error(f"Album upload error: {e}")
+                all_results.extend(
+                    UploadResult(path, None, False, f"Album upload error: {e}")
+                    for path in chunk
+                )
                 continue
             
             if isinstance(result, list):
@@ -629,7 +704,8 @@ class TelegramUploader:
         album_total: int = 1,
         compressed_note: str = "",
         max_retries: int = 5,
-        target_channel_id: Optional[int] = None
+        target_channel_id: Optional[int] = None,
+        part_numbers_override: Optional[List[int]] = None,
     ) -> List[UploadResult]:
         """
         Upload files as a single album (max 10 files) with retry logic.
@@ -668,7 +744,11 @@ class TelegramUploader:
                     if not path.exists():
                         return None
                     
-                    part_num = start_part_num + i
+                    part_num = (
+                        part_numbers_override[i]
+                        if part_numbers_override is not None and i < len(part_numbers_override)
+                        else start_part_num + i
+                    )
                     file_size_mb = path.stat().st_size / (1024 * 1024)
                     
                     # Build caption for the album (only for first item)
@@ -773,8 +853,11 @@ class TelegramUploader:
                 tasks = [limited_prepare(i, fp) for i, fp in enumerate(file_paths)]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 
-                # Process results (maintain order)
+                # Process results (maintain order), explicitly tracking files that
+                # disappeared or could not be prepared instead of silently dropping them.
+                valid_indices = []
                 for result in sorted([r for r in results if r and not isinstance(r, Exception)], key=lambda x: x['index']):
+                    valid_indices.append(result['index'])
                     valid_files.append(result['file_path'])
                     # Caption только для первого видео в альбоме
                     captions.append(result['caption'] if len(valid_files) == 1 else "")
@@ -787,7 +870,7 @@ class TelegramUploader:
                         raise result
                 
                 if not valid_files:
-                    return []
+                    return _album_upload_results(file_paths, [], valid_indices)
                 
                 # Send all media as an album
                 self._logger.info(f"Sending album with {len(media_list)} files...")
@@ -804,16 +887,10 @@ class TelegramUploader:
                 
                 self._logger.info(f"Album uploaded: {len(messages)} files with metadata and thumbnails")
                 
-                results = [
-                    UploadResult(
-                        file_path=valid_files[i],
-                        message_id=msg.id if i < len(messages) else None,
-                        success=True
-                    )
-                    for i, msg in enumerate(messages)
-                ]
-                
-                return results
+                # Keep one result per input file. Telegram may return fewer
+                # messages than requested; those files must remain marked failed
+                # so the caller can retry them instead of silently losing track.
+                return _album_upload_results(file_paths, messages, valid_indices)
                 
             except Exception as e:
                 error_str = str(e)

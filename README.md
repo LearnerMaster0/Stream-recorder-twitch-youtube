@@ -302,6 +302,18 @@ Most important static keys:
 - `state.state_file` and `control.runtime_config_file`;
 - `control.enabled`, `control.group_id`, `control.allowed_user_ids`.
 
+### Recording quality and Telegram file sizes
+
+Telegram album uploads now keep a result for every requested file: missing local files, incomplete message responses, and album-chunk exceptions are recorded as failures so the recovery flow can identify what still needs attention.
+
+YouTube channel handles may be entered with or without the leading `@`; bare handles are normalized automatically so state tracking treats them as YouTube sources.
+
+The default format selector is `bv*+ba/b`: use the best available video and audio streams when supported, and fall back to the best combined format. This can select 1080p when the source exposes it, but the source's available formats and YouTube's live-stream restrictions still determine the actual quality. For a fresh configuration that omits these fields, the recorder also defaults to `live_from_start: true`, MPEG-TS capture, and 30 retries (plus 10 fragment retries) to better tolerate long live sessions.
+
+`recording.live_from_start: true` asks yt-dlp to capture from the beginning when the platform allows it. If YouTube rejects that mode with a 403 error, the recorder retries without `--live-from-start`.
+
+To reduce Telegram upload-size failures, the default split targets are 1.8 GB for regular accounts and 3.8 GB for Premium. Compression is disabled by default so the original recording quality is preserved; it can be enabled explicitly in the `compression` section or per target.
+
 ### Cookies
 
 Set `recording.cookies_file` in `config.yaml`, for example:
@@ -314,6 +326,7 @@ recording:
 Notes:
 - file format should be Netscape cookies format;
 - use YouTube cookies for YouTube monitoring/recording;
+
 - use Twitch cookies if your Twitch recording setup needs them;
 - a combined cookies file can be used for `both` or `cross` mode;
 - set it to `""` to disable cookies.

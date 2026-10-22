@@ -233,6 +233,117 @@ class ProcessingFailureTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(state_store.status_updates[-1][0], StreamStatus.SENDING_COMPRESSED)
             app._cleanup_files.assert_not_awaited()
 
+    async def test_missing_segment_preserves_session_instead_of_processing_remaining_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            good = Path(tmpdir) / "recording_segment_1.mp4"
+            missing = Path(tmpdir) / "recording_segment_2.mp4"
+            good.write_bytes(b"good segment")
+            state = StreamState(
+                channel="channel",
+                stream_id="stream",
+                title="title",
+                status=StreamStatus.PROCESSING,
+                recording_files=[str(good), str(missing)],
+            )
+            state_store = StateStub(state)
+            app = self.make_app(state_store, tmpdir)
+
+            await StreamRecorderApp._process_recording(app, state)
+
+            self.assertEqual(state_store.status_updates[-1][0], StreamStatus.ERROR)
+            self.assertIn("missing", state_store.status_updates[-1][1].lower())
+            app.splitter.split_file.assert_not_awaited()
+            app.uploader.upload_stream_parts.assert_not_awaited()
+            self.assertTrue(good.exists())
+            self.assertFalse(state_store.completed)
+            app._cleanup_files.assert_not_awaited()
+
+    async def test_invalid_segment_preserves_entire_session_instead_of_skipping_it(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            good = Path(tmpdir) / "recording_segment_1.mp4"
+            bad = Path(tmpdir) / "recording_segment_2.mp4"
+            good.write_bytes(b"good segment")
+            bad.write_bytes(b"bad segment")
+            state = StreamState(
+                channel="channel",
+                stream_id="stream",
+                title="title",
+                status=StreamStatus.PROCESSING,
+                recording_files=[str(good), str(bad)],
+            )
+            state_store = StateStub(state)
+            app = self.make_app(state_store, tmpdir)
+
+            async def fake_create_subprocess_exec(*args, **kwargs):
+                path = args[-1]
+                class Proc:
+                    returncode = 0
+                    async def communicate(self):
+                        return (b"10.0\\n" if path == str(good) else b""), b"invalid media"
+                return Proc()
+
+            import streamrecorder.main as main_module
+            original_create = main_module.asyncio.create_subprocess_exec
+            main_module.asyncio.create_subprocess_exec = fake_create_subprocess_exec
+            try:
+                await StreamRecorderApp._process_recording(app, state)
+            finally:
+                main_module.asyncio.create_subprocess_exec = original_create
+
+            self.assertEqual(state_store.status_updates[-1][0], StreamStatus.ERROR)
+            self.assertIn("preserving the complete session", state_store.status_updates[-1][1].lower())
+            app.splitter.split_file.assert_not_awaited()
+            app.uploader.upload_stream_parts.assert_not_awaited()
+            self.assertTrue(good.exists())
+            self.assertTrue(bad.exists())
+            self.assertFalse(state_store.completed)
+            app._cleanup_files.assert_not_awaited()
+
+    async def test_split_failure_does_not_upload_or_archive_partial_recording(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            first = Path(tmpdir) / "recording_segment_1.mp4"
+            second = Path(tmpdir) / "recording_segment_2.mp4"
+            first.write_bytes(b"first video")
+            second.write_bytes(b"second video")
+            state = StreamState(
+                channel="channel",
+                stream_id="stream",
+                title="title",
+                status=StreamStatus.PROCESSING,
+                recording_files=[str(first), str(second)],
+            )
+            state_store = StateStub(state)
+            app = self.make_app(state_store, tmpdir)
+            app.splitter.split_file.side_effect = [
+                types.SimpleNamespace(success=True, output_files=[str(first)]),
+                types.SimpleNamespace(success=False, output_files=[], error="simulated ffmpeg failure"),
+            ]
+
+            async def fake_create_subprocess_exec(*args, **kwargs):
+                class Proc:
+                    returncode = 0
+
+                    async def communicate(self):
+                        return b"10.0\n", b""
+
+                return Proc()
+
+            import streamrecorder.main as main_module
+            original_create = main_module.asyncio.create_subprocess_exec
+            main_module.asyncio.create_subprocess_exec = fake_create_subprocess_exec
+            try:
+                await StreamRecorderApp._process_recording(app, state)
+            finally:
+                main_module.asyncio.create_subprocess_exec = original_create
+
+            self.assertFalse(state_store.completed)
+            self.assertEqual(state_store.status_updates[-1][0], StreamStatus.ERROR)
+            self.assertIn("preserving recordings for recovery", state_store.status_updates[-1][1].lower())
+            app.uploader.upload_stream_parts.assert_not_awaited()
+            self.assertTrue(first.exists())
+            self.assertTrue(second.exists())
+            app._cleanup_files.assert_not_awaited()
+
     async def test_partial_backup_forward_keeps_state_and_files_for_retry(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             original = Path(tmpdir) / "recording.mp4"

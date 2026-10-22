@@ -60,13 +60,13 @@ class RecordingConfig:
     """Recording settings."""
     output_dir: str = "./recordings"
     temp_dir: str = "./temp"
-    format: str = "best"
-    retries: int = 10
+    format: str = "bv*+ba/b"
+    retries: int = 30
     fragment_retries: int = 10
-    live_from_start: bool = False
+    live_from_start: bool = True
     cookies_file: str = ""  # Path to cookies file, empty to disable
     move_atom_to_front: bool = True  # Move moov atom for fast start
-    use_mpegts: bool = False  # Use MPEG-TS container for recording
+    use_mpegts: bool = True  # Use MPEG-TS container for resilient long live captures
     phantom_filter: PhantomFilterConfig = field(default_factory=PhantomFilterConfig)
 
 
@@ -74,19 +74,19 @@ class RecordingConfig:
 class SplittingConfig:
     """File splitting settings."""
     # Size will be determined dynamically based on Telegram Premium status
-    # 4 GB for Premium, 2 GB for regular accounts
-    default_size_gb: float = 2.0
-    premium_size_gb: float = 4.0
+    # Conservative upload targets: 3.8 GB Premium, 1.8 GB regular accounts
+    default_size_gb: float = 1.8
+    premium_size_gb: float = 3.8
 
 
 @dataclass
 class CompressionConfig:
     """Video compression settings."""
-    enabled: bool = True
+    enabled: bool = False
     # Target size in MB, will be adjusted based on Premium status
-    # 4000 MB (4 GB) for Premium, 2000 MB (2 GB) for regular
-    default_target_size_mb: int = 2000
-    premium_target_size_mb: int = 4000
+    # Conservative upload targets: 3800 MB Premium, 1900 MB regular
+    default_target_size_mb: int = 1900
+    premium_target_size_mb: int = 3800
     audio_bitrate_kbps: int = 128
     two_pass: bool = True
 
@@ -176,7 +176,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
     if not config_path.exists():
         raise FileNotFoundError(
             f"Configuration file not found: {config_path}\n"
-            f"Please create a config.yaml file. See config.example.yaml for reference."
+            f"Please create a config.yaml file. See config.yaml.example for reference."
         )
     
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -352,8 +352,14 @@ def load_config(config_path: str = "config.yaml") -> Config:
     )
     
     youtube_data = require_mapping(data.get('youtube', {}), 'youtube')
+    youtube_channels = as_str_list(youtube_data.get('channels'), [], 'youtube.channels')
+    # Normalize bare handles to @handles so state tracking identifies them as YouTube.
+    youtube_channels = [
+        channel if channel.startswith('@') or channel.startswith('UC') else f'@{channel}'
+        for channel in youtube_channels
+    ]
     youtube_config = YouTubeConfig(
-        channels=as_str_list(youtube_data.get('channels'), [], 'youtube.channels'),
+        channels=youtube_channels,
         check_interval=positive_int(youtube_data.get('check_interval'), 30, 'youtube.check_interval')
     )
     
@@ -367,13 +373,13 @@ def load_config(config_path: str = "config.yaml") -> Config:
     recording_config = RecordingConfig(
         output_dir=as_str(recording_data.get('output_dir'), './recordings', 'recording.output_dir'),
         temp_dir=as_str(recording_data.get('temp_dir'), './temp', 'recording.temp_dir'),
-        format=as_str(recording_data.get('format'), 'best', 'recording.format'),
-        retries=as_int(recording_data.get('retries'), 10, 'recording.retries', min_value=0),
+        format=as_str(recording_data.get('format'), 'bv*+ba/b', 'recording.format'),
+        retries=as_int(recording_data.get('retries'), 30, 'recording.retries', min_value=0),
         fragment_retries=as_int(recording_data.get('fragment_retries'), 10, 'recording.fragment_retries', min_value=0),
-        live_from_start=as_bool(recording_data.get('live_from_start'), False, 'recording.live_from_start'),
+        live_from_start=as_bool(recording_data.get('live_from_start'), True, 'recording.live_from_start'),
         cookies_file=as_str(recording_data.get('cookies_file'), '', 'recording.cookies_file'),
         move_atom_to_front=as_bool(recording_data.get('move_atom_to_front'), True, 'recording.move_atom_to_front'),
-        use_mpegts=as_bool(recording_data.get('use_mpegts'), False, 'recording.use_mpegts'),
+        use_mpegts=as_bool(recording_data.get('use_mpegts'), True, 'recording.use_mpegts'),
         phantom_filter=PhantomFilterConfig(
             enabled=as_bool(phantom_data.get('enabled'), True, 'recording.phantom_filter.enabled'),
             min_duration_sec=as_int(phantom_data.get('min_duration_sec'), 60, 'recording.phantom_filter.min_duration_sec', min_value=0),
@@ -387,15 +393,15 @@ def load_config(config_path: str = "config.yaml") -> Config:
     
     splitting_data = require_mapping(data.get('splitting', {}), 'splitting')
     splitting_config = SplittingConfig(
-        default_size_gb=positive_float(splitting_data.get('default_size_gb'), 2.0, 'splitting.default_size_gb'),
-        premium_size_gb=positive_float(splitting_data.get('premium_size_gb'), 4.0, 'splitting.premium_size_gb')
+        default_size_gb=positive_float(splitting_data.get('default_size_gb'), 1.8, 'splitting.default_size_gb'),
+        premium_size_gb=positive_float(splitting_data.get('premium_size_gb'), 3.8, 'splitting.premium_size_gb')
     )
     
     compression_data = require_mapping(data.get('compression', {}), 'compression')
     compression_config = CompressionConfig(
-        enabled=as_bool(compression_data.get('enabled'), True, 'compression.enabled'),
-        default_target_size_mb=positive_int(compression_data.get('default_target_size_mb'), 2000, 'compression.default_target_size_mb'),
-        premium_target_size_mb=positive_int(compression_data.get('premium_target_size_mb'), 4000, 'compression.premium_target_size_mb'),
+        enabled=as_bool(compression_data.get('enabled'), False, 'compression.enabled'),
+        default_target_size_mb=positive_int(compression_data.get('default_target_size_mb'), 1900, 'compression.default_target_size_mb'),
+        premium_target_size_mb=positive_int(compression_data.get('premium_target_size_mb'), 3800, 'compression.premium_target_size_mb'),
         audio_bitrate_kbps=positive_int(compression_data.get('audio_bitrate_kbps'), 128, 'compression.audio_bitrate_kbps'),
         two_pass=as_bool(compression_data.get('two_pass'), True, 'compression.two_pass')
     )
@@ -496,7 +502,7 @@ twitch:
 recording:
   output_dir: ./recordings
   temp_dir: ./temp
-  format: best  # yt-dlp format string
+  format: "bv*+ba/b"  # Best video + audio; fallback to best combined format
   retries: 10
   fragment_retries: 10
   live_from_start: true  # Try to record from stream start
@@ -511,13 +517,13 @@ recording:
 
 splitting:
   # File size limit based on Telegram account type
-  default_size_gb: 2.0   # Regular account limit
-  premium_size_gb: 4.0   # Premium account limit
+  default_size_gb: 1.8   # Safe upload size for regular accounts
+  premium_size_gb: 3.8   # Safe upload size for Premium accounts
 
 compression:
-  enabled: true
-  default_target_size_mb: 2000   # 2 GB for regular accounts
-  premium_target_size_mb: 4000   # 4 GB for Premium accounts
+  enabled: false
+  default_target_size_mb: 1900   # Safe target for regular accounts
+  premium_target_size_mb: 3800   # Safe target for Premium accounts
   audio_bitrate_kbps: 128
   two_pass: true  # Better quality, slower
 

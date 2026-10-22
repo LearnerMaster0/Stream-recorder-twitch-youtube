@@ -12,10 +12,13 @@ Coordinates all modules for complete stream recording workflow:
 
 import asyncio
 import hashlib
+import os
 import signal
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
+
+import yaml
 
 from .config import Config, load_config
 from .logger import setup_logging, get_logger, get_channel_logger
@@ -32,6 +35,7 @@ from .job_manager import JobManager, TargetUploadScheduler
 from .runtime_config import RuntimeConfigManager
 from .runtime_config import SourceChannel, TargetProfile
 from .telegram_controller import TelegramController
+from .telegram_link_requests import TelegramLinkRequestHandler
 
 
 # Status icons for Telegram messages
@@ -116,6 +120,7 @@ class StreamRecorderApp:
 
         self.runtime_config = RuntimeConfigManager(config.control.runtime_config_file)
         self.telegram_controller: Optional[TelegramController] = None
+        self.telegram_link_handler: Optional[TelegramLinkRequestHandler] = None
         self.jobs = JobManager({
             "recording": config.jobs.recording_concurrency,
             "processing": config.jobs.processing_concurrency,
@@ -173,6 +178,16 @@ class StreamRecorderApp:
                 session_action_callback=self.control_session_action,
             )
             await self.telegram_controller.start()
+
+        # Private-chat YouTube URL intake; the queue serializes manual recordings.
+        self.telegram_link_handler = TelegramLinkRequestHandler(
+            client=self.uploader.client,
+            recorder=self.recorder,
+            uploader=self.uploader,
+            splitting_config=self.config.splitting,
+            cookies_file=self.config.recording.cookies_file,
+        )
+        await self.telegram_link_handler.start()
 
         self._logger.info(
             f"Telegram: {'Premium' if self.uploader.is_premium else 'Regular'} account, "
@@ -287,6 +302,12 @@ class StreamRecorderApp:
         self._active_recordings.clear()
 
         # Disconnect services with timeouts
+        try:
+            if self.telegram_link_handler:
+                await self.telegram_link_handler.stop()
+        except Exception as e:
+            self._logger.warning(f"Error stopping Telegram link handler: {e}")
+
         try:
             if self.telegram_controller:
                 await self.telegram_controller.stop()
@@ -1520,8 +1541,16 @@ class StreamRecorderApp:
             await self.state.update_status(channel, StreamStatus.ERROR, "No files found")
             return
 
-        # Filter to only existing files
-        existing_files = [f for f in recording_files if Path(f).exists()]
+        # Verify every expected segment exists before processing the session.
+        missing_files = [f for f in recording_files if not Path(f).exists()]
+        if missing_files:
+            missing_names = ", ".join(Path(item).name for item in missing_files)
+            error = f"Recording segment(s) missing; session retained for recovery: {missing_names}"
+            logger.error(error)
+            await self.state.update_status(channel, StreamStatus.ERROR, error)
+            return
+
+        existing_files = list(recording_files)
         if not existing_files:
             logger.error(f"Recording files not found: {recording_files}")
             await self.state.update_status(channel, StreamStatus.ERROR, "Files not found")
@@ -1530,8 +1559,10 @@ class StreamRecorderApp:
         if len(existing_files) > 1:
             logger.info(f"📼 Processing {len(existing_files)} segments in session {state.session_id}")
 
-        # VALIDATE: Check each file is readable before processing
+        # VALIDATE every segment before processing. If one segment is unreadable,
+        # do not silently publish the remaining segments as a complete recording.
         valid_files = []
+        invalid_files = []
         for recording_file in existing_files:
             validate_proc = None
             try:
@@ -1545,14 +1576,27 @@ class StreamRecorderApp:
                 if duration_str and validate_proc.returncode == 0:
                     valid_files.append(recording_file)
                 else:
-                    logger.warning(f"Segment corrupted/incomplete, skipping: {Path(recording_file).name}")
+                    invalid_files.append(recording_file)
+                    logger.warning(f"Segment corrupted/incomplete: {Path(recording_file).name}")
             except asyncio.TimeoutError:
                 if validate_proc and validate_proc.returncode is None:
                     validate_proc.kill()
                     await validate_proc.wait()
-                logger.warning(f"Timed out validating segment, skipping: {Path(recording_file).name}")
+                invalid_files.append(recording_file)
+                logger.warning(f"Timed out validating segment: {Path(recording_file).name}")
             except Exception as e:
+                invalid_files.append(recording_file)
                 logger.warning(f"Failed to validate segment {Path(recording_file).name}: {e}")
+
+        if invalid_files:
+            invalid_names = ", ".join(Path(path).name for path in invalid_files)
+            error = (
+                "One or more recording segments failed validation; "
+                f"preserving the complete session for recovery: {invalid_names}"
+            )
+            logger.error(error)
+            await self.state.update_status(channel, StreamStatus.ERROR, error)
+            return
 
         if not valid_files:
             logger.error("All segments are corrupted or incomplete")
@@ -1618,6 +1662,7 @@ class StreamRecorderApp:
 
                 # Split upload-safe MP4 sources and collect parts in order.
                 all_split_files = []
+                split_failures = []
                 for i, recording_file in enumerate(upload_source_files):
                     segment_name = Path(recording_file).name
                     if len(upload_source_files) > 1:
@@ -1631,10 +1676,12 @@ class StreamRecorderApp:
                         all_split_files.extend(split_result.output_files)
                         logger.info(f"  → {len(split_result.output_files)} parts")
                     else:
-                        logger.warning(f"Split failed for {segment_name}: {split_result.error}")
+                        error = f"Split failed for {segment_name}: {split_result.error}"
+                        split_failures.append(error)
+                        logger.error(error)
 
-                if not all_split_files:
-                    raise Exception("No files after splitting")
+                if not all_split_files and not split_failures:
+                    split_failures.append("No files after splitting")
 
                 # CROSS MODE: Also split any linked recordings (YT + Twitch)
                 if state.linked_recording_files:
@@ -1659,7 +1706,22 @@ class StreamRecorderApp:
                                 all_split_files.extend(linked_result.output_files)
                                 logger.info(f"Cross mode: Added {len(linked_result.output_files)} parts from linked recording")
                             else:
-                                logger.warning(f"Cross mode: Failed to split linked file: {linked_result.error}")
+                                error = (
+                                    f"Cross mode: Failed to split linked file "
+                                    f"{Path(linked_file).name}: {linked_result.error}"
+                                )
+                                split_failures.append(error)
+                                logger.error(error)
+
+                # Never upload/archive a partial session after silently dropping
+                # one of its recording segments. Keep source files and retry later.
+                if split_failures:
+                    raise RuntimeError(
+                        "Upload preparation incomplete; preserving recordings for recovery: "
+                        + " | ".join(split_failures)
+                    )
+                if not all_split_files:
+                    raise RuntimeError("No files after splitting; preserving recordings for recovery")
 
                 await self.state.set_split_files(channel, all_split_files)
 
@@ -1742,6 +1804,9 @@ class StreamRecorderApp:
                                 total_parts_override=len(split_files),
                                 album_index_offset=album_index_offset,
                                 album_total_override=album_total,
+                                part_numbers_override=[
+                                    split_files.index(path) + 1 for path in pending_split_files
+                                ],
                             )
 
                         for result in pending.results:
@@ -2665,8 +2730,78 @@ class StreamRecorderApp:
                 logger.warning(f"Failed to delete compressed: {e}")
 
 
+def _create_config_from_environment() -> bool:
+    """Create a private runtime config from Voroa environment variables if needed.
+
+    Existing config.yaml files always take precedence. Secrets are read from the
+    process environment and are never printed or committed to the repository.
+    """
+    config_path = Path("config.yaml")
+    if config_path.exists():
+        return True
+
+    template_path = Path("config.yaml.example")
+    if not template_path.exists():
+        print("Error: config.yaml and config.yaml.example are both missing.")
+        return False
+
+    # Manual-link mode does not require a preconfigured YouTube channel list.
+    required = (
+        "TELEGRAM_API_ID",
+        "TELEGRAM_API_HASH",
+        "TELEGRAM_CHANNEL_ID",
+    )
+    missing = [name for name in required if not os.environ.get(name, "").strip()]
+    if missing:
+        print(
+            "Configuration file config.yaml is missing. Add these Environment "
+            "variables in Voroa, then redeploy: " + ", ".join(missing)
+        )
+        return False
+
+    try:
+        with template_path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+
+        data["platform"] = os.environ.get("STREAMRECORDER_PLATFORM", "youtube").strip().lower()
+        telegram = data.setdefault("telegram", {})
+        telegram["api_id"] = int(os.environ["TELEGRAM_API_ID"].strip())
+        telegram["api_hash"] = os.environ["TELEGRAM_API_HASH"].strip()
+        telegram["channel_id"] = int(os.environ["TELEGRAM_CHANNEL_ID"].strip())
+
+        channels_raw = os.environ.get("YOUTUBE_CHANNELS", "")
+        channels = [
+            item.strip()
+            for item in channels_raw.replace("\n", ",").split(",")
+            if item.strip()
+        ]
+        data.setdefault("youtube", {})["channels"] = channels
+
+        # Cookies are optional; do not point yt-dlp at a file that is not present.
+        recording = data.setdefault("recording", {})
+        recording["format"] = os.environ.get(
+            "YOUTUBE_FORMAT", "bv*[height<=1080]+ba/b[height<=1080]"
+        ).strip()
+        recording["cookies_file"] = os.environ.get(
+            "YOUTUBE_COOKIES_FILE", ""
+        ).strip()
+
+        config_path.write_text(
+            yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+        print("Created runtime config.yaml from Voroa Environment variables.")
+        return True
+    except (KeyError, ValueError, OSError, yaml.YAMLError) as exc:
+        print(f"Could not create runtime config.yaml: {exc}")
+        return False
+
+
 async def main():
     """Main entry point."""
+    if not _create_config_from_environment():
+        return
+
     # Load configuration
     try:
         config = load_config("config.yaml")
@@ -2696,8 +2831,7 @@ async def main():
 
     if config.platform in ("youtube", "both", "cross"):
         if not config.youtube.channels:
-            print("Error: No YouTube channels configured")
-            return
+            print("No fixed YouTube channels configured; private-chat link requests remain enabled.")
 
     # Run application
     app = StreamRecorderApp(config)
