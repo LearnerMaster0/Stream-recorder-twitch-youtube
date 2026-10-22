@@ -769,10 +769,16 @@ class StreamRecorder:
             # Main file doesn't exist or is empty - try recovery logic
             logger.info("Main file not found, trying fragment recovery...")
             recovery_result = await self.recover_interrupted_recording(stream_info, temp_path)
-            status = recovery_result.status
             file_size = recovery_result.file_size_bytes
             final_path = recovery_result.output_path
-            error_msg = recovery_result.error
+            if live_from_start_failed:
+                # A recovered partial is useful for manual inspection, but must not
+                # be reported as a complete recording or automatically uploaded.
+                status = RecordingStatus.FAILED
+                error_msg = error_msg or recovery_result.error
+            else:
+                status = recovery_result.status
+                error_msg = recovery_result.error
 
         return RecordingResult(
             channel=channel,
