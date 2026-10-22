@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, List, Optional
 
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 from telethon.tl.types import User
 
 # FastTelethonhelper for high-speed uploads (parallel chunk uploads)
@@ -158,8 +159,13 @@ class TelegramUploader:
             True if connected successfully.
         """
         try:
+            # Cloud hosts have no interactive terminal for phone-code login.
+            # When provided, use a Telethon StringSession from a secret environment
+            # variable; otherwise preserve the existing on-disk session behavior.
+            session_string = os.environ.get("TELEGRAM_SESSION_STRING", "").strip()
+            session = StringSession(session_string) if session_string else self.session_name
             self._client = TelegramClient(
-                self.session_name,
+                session,
                 self.api_id,
                 self.api_hash
             )
