@@ -12,10 +12,13 @@ Coordinates all modules for complete stream recording workflow:
 
 import asyncio
 import hashlib
+import os
 import signal
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
+
+import yaml
 
 from .config import Config, load_config
 from .logger import setup_logging, get_logger, get_channel_logger
@@ -2709,8 +2712,73 @@ class StreamRecorderApp:
                 logger.warning(f"Failed to delete compressed: {e}")
 
 
+def _create_config_from_environment() -> bool:
+    """Create a private runtime config from Voroa environment variables if needed.
+
+    Existing config.yaml files always take precedence. Secrets are read from the
+    process environment and are never printed or committed to the repository.
+    """
+    config_path = Path("config.yaml")
+    if config_path.exists():
+        return True
+
+    template_path = Path("config.yaml.example")
+    if not template_path.exists():
+        print("Error: config.yaml and config.yaml.example are both missing.")
+        return False
+
+    required = (
+        "TELEGRAM_API_ID",
+        "TELEGRAM_API_HASH",
+        "TELEGRAM_CHANNEL_ID",
+        "YOUTUBE_CHANNELS",
+    )
+    missing = [name for name in required if not os.environ.get(name, "").strip()]
+    if missing:
+        print(
+            "Configuration file config.yaml is missing. Add these Environment "
+            "variables in Voroa, then redeploy: " + ", ".join(missing)
+        )
+        return False
+
+    try:
+        with template_path.open("r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+
+        data["platform"] = os.environ.get("STREAMRECORDER_PLATFORM", "youtube").strip().lower()
+        telegram = data.setdefault("telegram", {})
+        telegram["api_id"] = int(os.environ["TELEGRAM_API_ID"].strip())
+        telegram["api_hash"] = os.environ["TELEGRAM_API_HASH"].strip()
+        telegram["channel_id"] = int(os.environ["TELEGRAM_CHANNEL_ID"].strip())
+
+        channels = [
+            item.strip()
+            for item in os.environ["YOUTUBE_CHANNELS"].replace("\n", ",").split(",")
+            if item.strip()
+        ]
+        data.setdefault("youtube", {})["channels"] = channels
+
+        # Cookies are optional; do not point yt-dlp at a file that is not present.
+        data.setdefault("recording", {})["cookies_file"] = os.environ.get(
+            "YOUTUBE_COOKIES_FILE", ""
+        ).strip()
+
+        config_path.write_text(
+            yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+        print("Created runtime config.yaml from Voroa Environment variables.")
+        return True
+    except (KeyError, ValueError, OSError, yaml.YAMLError) as exc:
+        print(f"Could not create runtime config.yaml: {exc}")
+        return False
+
+
 async def main():
     """Main entry point."""
+    if not _create_config_from_environment():
+        return
+
     # Load configuration
     try:
         config = load_config("config.yaml")
