@@ -15,7 +15,7 @@ from .stream_monitor import StreamInfo
 from .splitter import FileSplitter
 
 YOUTUBE_URL_RE = re.compile(
-    r"https?://(?:(?:www|m)\.)?(?:youtube\.com/(?:watch\\?[^\s]*v=|live/|shorts/|embed/)|youtu\.be/)[^\s<>]+",
+    r"https?://(?:(?:www|m)\.)?(?:youtube\.com/(?:watch\?[^\s]*v=|live/|shorts/|embed/)|youtu\.be/)[^\s<>.,!?;]+",
     re.IGNORECASE,
 )
 
