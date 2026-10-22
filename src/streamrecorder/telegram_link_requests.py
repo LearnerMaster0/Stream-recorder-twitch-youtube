@@ -5,6 +5,7 @@ survive worker restarts; an interrupted recording is re-queued on next startup.
 """
 import asyncio
 import os
+from contextlib import contextmanager
 import re
 import sqlite3
 from datetime import datetime
@@ -59,10 +60,22 @@ class TelegramLinkRequestHandler:
         db.commit()
         return db
 
+    @contextmanager
+    def _db(self):
+        connection = self._connect_db()
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     async def start(self) -> None:
         if self._handler is not None:
             return
-        with self._connect_db() as db:
+        with self._db() as db:
             # If the process died during recording, retry the request after restart.
             db.execute(
                 "UPDATE link_requests SET status='queued', updated_at=? WHERE status='recording'",
@@ -110,7 +123,7 @@ class TelegramLinkRequestHandler:
             if sender_id not in self.allowed_user_ids:
                 await event.reply("⛔ इस बॉट से रिकॉर्डिंग माँगने की अनुमति नहीं है।")
                 return
-            with self._connect_db() as db:
+            with self._db() as db:
                 duplicate = db.execute(
                     "SELECT id FROM link_requests WHERE sender_id=? AND url=? "
                     "AND status IN ('queued','recording')",
@@ -141,7 +154,7 @@ class TelegramLinkRequestHandler:
         while True:
             try:
                 request = None
-                with self._connect_db() as db:
+                with self._db() as db:
                     request = db.execute(
                         "SELECT id,sender_id,url FROM link_requests WHERE status='queued' "
                         "ORDER BY id LIMIT 1"
@@ -163,7 +176,7 @@ class TelegramLinkRequestHandler:
                     await self._record_and_deliver(int(request["sender_id"]), request["url"])
                     status, error = "done", None
                 except asyncio.CancelledError:
-                    with self._connect_db() as db:
+                    with self._db() as db:
                         db.execute(
                             "UPDATE link_requests SET status='queued',updated_at=? WHERE id=?",
                             (datetime.now().isoformat(), request["id"]),
@@ -179,7 +192,7 @@ class TelegramLinkRequestHandler:
                         )
                     except Exception:
                         pass
-                with self._connect_db() as db:
+                with self._db() as db:
                     db.execute(
                         "UPDATE link_requests SET status=?,error=?,updated_at=? WHERE id=?",
                         (status, error, datetime.now().isoformat(), request["id"]),
