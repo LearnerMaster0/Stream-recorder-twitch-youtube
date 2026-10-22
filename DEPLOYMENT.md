@@ -1,5 +1,7 @@
 # Deployment and storage notes
 
+**Android phone setup:** Follow the [Android Termux step-by-step guide](docs/ANDROID_TERMUX_SETUP.md) to generate the Telegram session and find your numeric Telegram user ID without sharing the secret.
+
 This application is a long-running background worker. It records media to disk, processes/splits files, stores recovery state in SQLite, and uses a Telethon session file. It is not a static website.
 
 ## Required runtime
