@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Awaitable, Callable, List, Optional
 
 from telethon import TelegramClient
-from telethon.sessions import StringSession
 from telethon.tl.types import User
 
 # FastTelethonhelper for high-speed uploads (parallel chunk uploads)
@@ -163,7 +162,13 @@ class TelegramUploader:
             # When provided, use a Telethon StringSession from a secret environment
             # variable; otherwise preserve the existing on-disk session behavior.
             session_string = os.environ.get("TELEGRAM_SESSION_STRING", "").strip()
-            session = StringSession(session_string) if session_string else self.session_name
+            if session_string:
+                # Import lazily so test doubles that mock ``telethon`` do not need
+                # to implement its optional sessions submodule.
+                from telethon.sessions import StringSession
+                session = StringSession(session_string)
+            else:
+                session = self.session_name
             self._client = TelegramClient(
                 session,
                 self.api_id,
