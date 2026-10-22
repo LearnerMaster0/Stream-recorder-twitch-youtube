@@ -5,15 +5,16 @@ This application is a long-running background worker. It records media to disk, 
 ## Required runtime
 
 - Python 3.10 or 3.11
-- `ffmpeg` and `ffprobe`
-- GPAC `MP4Box` (used by the splitter)
+- FFmpeg and FFprobe (provided by the Dockerfile)
 - Dependencies from `requirements.txt`
 - A persistent filesystem with enough free space for the source recording plus temporary and split copies
 - Persistent storage for `recordings/`, `temp/`, `data/`, `logs/`, and the Telethon `.session` file
 
+The current splitter uses FFmpeg for size-based splitting; GPAC/MP4Box is not required by the current implementation.
+
 ## Basic Linux setup
 
-1. Install Python, pip, FFmpeg/FFprobe, and GPAC/MP4Box using packages appropriate for your Linux distribution. GPAC installation instructions: https://gpac.io/downloads/gpac-nightly-builds/
+1. Install Python, pip, and FFmpeg/FFprobe using packages appropriate for your Linux distribution.
 2. Clone the repository and enter its directory.
 3. Create a virtual environment and install dependencies:
 
@@ -25,7 +26,7 @@ This application is a long-running background worker. It records media to disk, 
 
 4. Copy `config.yaml.example` to `config.yaml` and enter your own Telegram/platform settings. Keep `config.yaml`, `cookies.txt`, and Telethon session files private; never commit them.
 5. Ensure the configured output, temporary, data, and log directories are on persistent storage.
-6. Start the worker with `python main.py`. First-time Telegram login may ask for a code and, if enabled, a two-step verification password.
+6. Start the worker with `python -m streamrecorder.main` from the repository root with `PYTHONPATH=src`, or use the included Dockerfile. First-time Telegram login may ask for a code and, if enabled, a two-step verification password.
 
 ## Telegram private-chat YouTube link mode
 
@@ -46,7 +47,7 @@ The queue survives worker restarts, but a recording interrupted by a host restar
 
 A phone browser can edit the repository, configure a host, and monitor GitHub Actions, but GitHub Actions is not a suitable always-on recorder: workflow jobs are time-limited and their temporary disks are not durable recording storage.
 
-Running directly on Android through Termux may be possible for experiments, but it is not the recommended production setup for unattended 3–5 hour recordings. Android may suspend background processes, battery optimization can stop work, mobile storage can fill, and the splitter requires a working `MP4Box` binary as well as FFmpeg. Before relying on a Termux setup, verify that Python dependencies and both media tools are installable for the phone's CPU/Android version and test a short stream while the screen is off.
+Running directly on Android through Termux may be possible for experiments, but it is not the recommended production setup for unattended 3–5 hour recordings. Android may suspend background processes, battery optimization can stop work, mobile storage can fill, and long recordings need substantial temporary disk space. Before relying on a Termux setup, verify that Python dependencies and FFmpeg are installable for the phone's CPU/Android version and test a short stream while the screen is off.
 
 The most practical mobile-only operating model is: configure and deploy from the phone browser, run the worker on a persistent remote Linux VM/worker with attached storage, and control/check it through Telegram. The worker still needs its own Telegram login session created securely; never paste API hashes, session files, or two-step passwords into public issues or commits.
 
