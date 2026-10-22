@@ -38,7 +38,9 @@ Set these Voroa Environment variables:
 - `TELEGRAM_ALLOWED_USER_IDS`: the owner's numeric Telegram user ID. Only IDs in this comma-separated allowlist may submit links. The listener rejects requests until this variable is set.
 - `YOUTUBE_CHANNELS` is optional in link mode. Leave it blank if you only want to send individual links in Telegram.
 
-The queue survives worker restarts, but a recording interrupted by a host restart may be attempted again from its URL and can create a new output file. A live stream can only be recorded from its beginning when YouTube/yt-dlp actually exposes the beginning of that stream; this cannot be guaranteed for every live stream. A Telethon user session is used by this project; it is not a Bot API token session.
+For YouTube live links, the recorder passes yt-dlp's `--live-from-start` option: if you send a link 30 minutes after the live began, it attempts to fetch the available stream from time 0 and catch up toward the live edge while continuing the capture. The completed recording is only delivered after yt-dlp exits and the output is finalized. If YouTube rejects the start-from-beginning request with HTTP 403, the recorder now marks that request as failed instead of silently retrying from the current live edge and delivering a video missing the beginning.
+
+The queue survives worker restarts, but a recording interrupted by a host restart may be attempted again from its URL and can create a new output file. Catch-up from time 0 is possible only when YouTube/yt-dlp actually exposes the beginning of that stream; this cannot be guaranteed for every livestream, and must be verified with a real delayed-link test. A Telethon user session is used by this project; it is not a Bot API token session.
 
 ## Android/mobile-only workflow
 
