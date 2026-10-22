@@ -63,7 +63,7 @@ class RecorderCommandTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(command[command.index("--socket-timeout") + 1], "120")
             self.assertEqual(command[-1], stream_info.stream_url)
 
-    async def test_youtube_403_falls_back_without_live_from_start(self):
+    async def test_youtube_403_does_not_fall_back_to_live_edge(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             recorder = StreamRecorder(
                 output_dir=str(Path(tmpdir) / "recordings"),
@@ -100,24 +100,19 @@ class RecorderCommandTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 wait=AsyncMock(),
             )
-            second_process = SimpleNamespace(
-                returncode=0,
-                stdout=SimpleNamespace(readline=AsyncMock(return_value=b"")),
-                wait=AsyncMock(),
-            )
 
             with patch(
                 "streamrecorder.recorder.asyncio.create_subprocess_exec",
-                new=AsyncMock(side_effect=[first_process, second_process]),
+                new=AsyncMock(return_value=first_process),
             ) as create_process:
-                await recorder.record_stream(stream_info)
+                result = await recorder.record_stream(stream_info)
 
-            self.assertEqual(create_process.await_count, 2)
-            first_command = create_process.await_args_list[0].args
-            second_command = create_process.await_args_list[1].args
-            self.assertIn("--live-from-start", first_command)
-            self.assertNotIn("--live-from-start", second_command)
-            self.assertEqual(second_command[second_command.index("--format") + 1], "bv*+ba/b")
+            self.assertEqual(create_process.await_count, 1)
+            command = create_process.await_args.args
+            self.assertIn("--live-from-start", command)
+            self.assertEqual(result.status, RecordingStatus.FAILED)
+            self.assertIn("Refusing to retry from the current live edge", result.error)
+
 
 
 if __name__ == "__main__":
