@@ -2778,7 +2778,11 @@ def _create_config_from_environment() -> bool:
         data.setdefault("youtube", {})["channels"] = channels
 
         # Cookies are optional; do not point yt-dlp at a file that is not present.
-        data.setdefault("recording", {})["cookies_file"] = os.environ.get(
+        recording = data.setdefault("recording", {})
+        recording["format"] = os.environ.get(
+            "YOUTUBE_FORMAT", "bv*[height<=1080]+ba/b[height<=1080]"
+        ).strip()
+        recording["cookies_file"] = os.environ.get(
             "YOUTUBE_COOKIES_FILE", ""
         ).strip()
 
