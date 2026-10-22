@@ -32,9 +32,13 @@ async def main() -> None:
                 password = getpass.getpass("Telegram two-step verification password (input hidden): ")
                 await client.sign_in(password=password)
 
+        me = await client.get_me()
         session = client.session.save()
         if not session:
             raise SystemExit("No session string was created.")
+
+        print("\nTelegram account authorized.")
+        print(f"Your numeric Telegram user ID (use for TELEGRAM_ALLOWED_USER_IDS): {me.id}")
         print("\nSESSION STRING (secret; copy directly into Voroa's secret environment variable):")
         print(session)
         print("\nDo not paste this into ChatGPT, GitHub files, issues, screenshots, or public chats.")
