@@ -444,9 +444,10 @@ class StreamRecorder:
         # Determine if this is a YouTube URL
         is_youtube = 'youtube.com' in stream_info.stream_url or 'youtu.be' in stream_info.stream_url
 
-        retry_without_live_start = False
+        # Never silently fall back to live-edge-only capture for a request that
+        # explicitly requires the beginning of a YouTube livestream.
+        live_from_start_failed = False
 
-        # Retry loop for handling specific errors (like 403 with live-from-start)
         while True:
             # Build yt-dlp command
             cmd = ['yt-dlp']
@@ -459,7 +460,7 @@ class StreamRecorder:
             cmd.extend(['--output', str(temp_path)])
 
             # Effective live_from_start setting for this attempt
-            use_live_from_start = should_live_from_start and not retry_without_live_start
+            use_live_from_start = should_live_from_start
 
             if is_youtube and use_live_from_start:
                 # ULTRA-CLEAN command for YouTube live-from-start
@@ -621,9 +622,15 @@ class StreamRecorder:
                 # Only retry if command FAILED (non-zero return) WITH 403 AND we were using live_from_start
                 # If return code is 0, we assume success even if there was a metadata warning
                 if forbidden_error_detected and use_live_from_start and process.returncode != 0:
-                    logger.warning("⚠️ 403 Forbidden detected with live-from-start! Retrying standard recording...")
-                    retry_without_live_start = True
-                    continue  # Loop again with retry_without_live_start=True
+                    live_from_start_failed = True
+                    status = RecordingStatus.FAILED
+                    error_msg = (
+                        "YouTube returned HTTP 403 while trying to record from the livestream "
+                        "beginning. Refusing to retry from the current live edge because that "
+                        "would silently omit the beginning of the requested recording."
+                    )
+                    logger.error(error_msg)
+                    break
 
                 if process.returncode == 0:
                     status = RecordingStatus.COMPLETED
@@ -732,7 +739,8 @@ class StreamRecorder:
 
             try:
                 actual_temp_file.rename(actual_output_path)
-                status = RecordingStatus.COMPLETED
+                if not live_from_start_failed:
+                    status = RecordingStatus.COMPLETED
                 final_path = str(actual_output_path)
                 logger.info(f"Saved: {actual_output_path}")
 
@@ -750,7 +758,9 @@ class StreamRecorder:
             file_size = part_file.stat().st_size
             logger.info(f"Found .part file: {part_file.name}")
             part_file.rename(output_path)
-            status = RecordingStatus.COMPLETED
+            if not live_from_start_failed:
+                status = RecordingStatus.COMPLETED
+            final_path = str(output_path)
             logger.info(f"Saved: {output_path}")
             # Fix moov atom
             if self.move_atom_to_front and output_path.suffix.lower() == '.mp4':
