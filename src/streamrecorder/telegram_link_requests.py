@@ -186,9 +186,10 @@ class TelegramLinkRequestHandler:
                     self.logger.exception("Recording request failed")
                     status, error = "failed", str(exc)[:1000]
                     try:
+                        detail = str(exc).strip()[:500] or "अज्ञात त्रुटि"
                         await self.client.send_message(
                             int(request["sender_id"]),
-                            "❌ रिकॉर्डिंग में त्रुटि आ गई। सर्वर लॉग में विवरण देखें।",
+                            f"❌ रिक्वेस्ट पूरी नहीं हो सकी: {detail}",
                         )
                     except Exception:
                         pass
@@ -223,7 +224,6 @@ class TelegramLinkRequestHandler:
         result = await self.recorder.record_stream(info, live_from_start=True)
         if result.status.value != "completed" or not result.output_path or not Path(result.output_path).is_file():
             reason = result.error or result.status.value
-            await self.client.send_message(sender_id, f"❌ रिकॉर्डिंग पूरी नहीं हो सकी। कारण: {reason}")
             raise RuntimeError(f"Recording did not complete: {reason}")
 
         output = Path(result.output_path)
@@ -239,12 +239,10 @@ class TelegramLinkRequestHandler:
                 str(output), max_gb, output_prefix=f"{output.stem}_part"
             )
             if not split_result.success or not split_result.output_files:
-                await self.client.send_message(
-                    sender_id,
-                    "❌ वीडियो बड़ी है और Telegram सीमा के अनुसार बाँटी नहीं जा सकी। "
-                    "रिकॉर्डिंग सर्वर पर सुरक्षित रखी गई है।",
+                raise RuntimeError(
+                    "वीडियो Telegram सीमा से बड़ी थी और उसे बाँटना विफल हुआ; "
+                    "रिकॉर्डिंग सर्वर पर सुरक्षित रखी गई है।"
                 )
-                raise RuntimeError("Video exceeded Telegram limit and splitting failed")
             files = split_result.output_files
 
         await self.client.send_message(
@@ -262,11 +260,19 @@ class TelegramLinkRequestHandler:
                 file_path, caption, target_channel_id=sender_id
             )
             if not upload.success:
-                await self.client.send_message(
-                    sender_id,
-                    f"⚠️ फ़ाइल {index}/{total} भेजने में विफल रही: "
-                    f"{upload.error or 'अज्ञात त्रुटि'}\n"
-                    f"फ़ाइल सर्वर पर रखी गई है: {Path(file_path).name}",
+                raise RuntimeError(
+                    f"Telegram पर फ़ाइल {index}/{total} भेजने में विफल: "
+                    f"{upload.error or 'अज्ञात त्रुटि'}; "
+                    f"फ़ाइल सर्वर पर रखी गई है: {Path(file_path).name}"
                 )
-                raise RuntimeError(f"Telegram upload failed for part {index}/{total}")
         await self.client.send_message(sender_id, "✅ रिकॉर्डिंग की सभी फ़ाइलें भेज दी गई हैं।")
+
+        # Release disk space only after every upload succeeds. On any upload failure,
+        # the original and generated parts remain available for manual retry.
+        cleanup_paths = set(files)
+        cleanup_paths.add(str(output))
+        for path in cleanup_paths:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError as exc:
+                self.logger.warning("Could not remove uploaded recording %s: %s", path, exc)
