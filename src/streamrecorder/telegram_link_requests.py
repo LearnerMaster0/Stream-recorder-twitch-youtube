@@ -74,7 +74,13 @@ class TelegramLinkRequestHandler:
             if not match:
                 return
             url = match.group(0).rstrip(".,);]}")
-            if self.allowed_user_ids and sender_id not in self.allowed_user_ids:
+            if not self.allowed_user_ids:
+                await event.reply(
+                    "⚙️ बॉट का सुरक्षित सेटअप अधूरा है। मालिक का Telegram numeric ID "
+                    "Voroa में TELEGRAM_ALLOWED_USER_IDS नाम के Environment variable में जोड़ें।"
+                )
+                return
+            if sender_id not in self.allowed_user_ids:
                 await event.reply("⛔ इस बॉट से रिकॉर्डिंग माँगने की अनुमति नहीं है।")
                 return
             if self.queue.full():
