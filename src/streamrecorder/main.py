@@ -35,6 +35,7 @@ from .job_manager import JobManager, TargetUploadScheduler
 from .runtime_config import RuntimeConfigManager
 from .runtime_config import SourceChannel, TargetProfile
 from .telegram_controller import TelegramController
+from .telegram_link_requests import TelegramLinkRequestHandler
 
 
 # Status icons for Telegram messages
@@ -119,6 +120,7 @@ class StreamRecorderApp:
 
         self.runtime_config = RuntimeConfigManager(config.control.runtime_config_file)
         self.telegram_controller: Optional[TelegramController] = None
+        self.telegram_link_handler: Optional[TelegramLinkRequestHandler] = None
         self.jobs = JobManager({
             "recording": config.jobs.recording_concurrency,
             "processing": config.jobs.processing_concurrency,
@@ -176,6 +178,16 @@ class StreamRecorderApp:
                 session_action_callback=self.control_session_action,
             )
             await self.telegram_controller.start()
+
+        # Private-chat YouTube URL intake; the queue serializes manual recordings.
+        self.telegram_link_handler = TelegramLinkRequestHandler(
+            client=self.uploader.client,
+            recorder=self.recorder,
+            uploader=self.uploader,
+            splitting_config=self.config.splitting,
+            cookies_file=self.config.recording.cookies_file,
+        )
+        await self.telegram_link_handler.start()
 
         self._logger.info(
             f"Telegram: {'Premium' if self.uploader.is_premium else 'Regular'} account, "
@@ -290,6 +302,12 @@ class StreamRecorderApp:
         self._active_recordings.clear()
 
         # Disconnect services with timeouts
+        try:
+            if self.telegram_link_handler:
+                await self.telegram_link_handler.stop()
+        except Exception as e:
+            self._logger.warning(f"Error stopping Telegram link handler: {e}")
+
         try:
             if self.telegram_controller:
                 await self.telegram_controller.stop()
@@ -2727,11 +2745,11 @@ def _create_config_from_environment() -> bool:
         print("Error: config.yaml and config.yaml.example are both missing.")
         return False
 
+    # Manual-link mode does not require a preconfigured YouTube channel list.
     required = (
         "TELEGRAM_API_ID",
         "TELEGRAM_API_HASH",
         "TELEGRAM_CHANNEL_ID",
-        "YOUTUBE_CHANNELS",
     )
     missing = [name for name in required if not os.environ.get(name, "").strip()]
     if missing:
@@ -2751,9 +2769,10 @@ def _create_config_from_environment() -> bool:
         telegram["api_hash"] = os.environ["TELEGRAM_API_HASH"].strip()
         telegram["channel_id"] = int(os.environ["TELEGRAM_CHANNEL_ID"].strip())
 
+        channels_raw = os.environ.get("YOUTUBE_CHANNELS", "")
         channels = [
             item.strip()
-            for item in os.environ["YOUTUBE_CHANNELS"].replace("\n", ",").split(",")
+            for item in channels_raw.replace("\n", ",").split(",")
             if item.strip()
         ]
         data.setdefault("youtube", {})["channels"] = channels
@@ -2808,8 +2827,7 @@ async def main():
 
     if config.platform in ("youtube", "both", "cross"):
         if not config.youtube.channels:
-            print("Error: No YouTube channels configured")
-            return
+            print("No fixed YouTube channels configured; private-chat link requests remain enabled.")
 
     # Run application
     app = StreamRecorderApp(config)
