@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a Telethon StringSession using Telegram QR login instead of an SMS/code flow.
+"""Create a Telethon StringSession using Telegram QR login instead of a code flow.
 
 Run only on a trusted device. Never share the printed StringSession.
 """
@@ -21,33 +21,53 @@ async def main():
     if not api_hash:
         raise SystemExit("API HASH cannot be empty.")
 
-    client = TelegramClient(StringSession(), api_id, api_hash)
-    await client.connect()
+    client = TelegramClient(
+        StringSession(), api_id, api_hash,
+        connection_retries=3, request_retries=3, auto_reconnect=True,
+    )
     try:
+        await client.connect()
         if not await client.is_user_authorized():
             try:
                 import qrcode
             except ImportError:
                 raise SystemExit(
-                    "Missing QR display package. Run: python -m pip install qrcode"
+                    "Missing QR package. Run: python -m pip install qrcode"
                 )
 
-            qr_login = await client.qr_login()
-            print("\nScan this QR from the Telegram account you want to connect.")
-            print("Telegram app: Settings > Devices > Link Desktop Device.")
-            print("If scanning on the same phone, take a screenshot and use the scanner's gallery option if available.\n")
-            qr = qrcode.QRCode(border=2)
-            qr.add_data(qr_login.url)
-            qr.make(fit=True)
-            qr.print_ascii(invert=True)
+            print("\nKeep this screen open. In Telegram, open Settings > Devices > Link Desktop Device.")
+            print("Scan each QR promptly; it expires and will refresh automatically.")
+            print("If the connection drops repeatedly, switch network (Wi-Fi/mobile data) and retry.\n")
 
-            try:
-                await qr_login.wait()
-            except SessionPasswordNeededError:
-                password = getpass.getpass(
-                    "Telegram 2-Step Verification password (hidden): "
+            authorized = False
+            for attempt in range(1, 4):
+                if not client.is_connected():
+                    await client.connect()
+                qr_login = await client.qr_login()
+                print(f"\nQR attempt {attempt}/3:")
+                qr = qrcode.QRCode(border=2)
+                qr.add_data(qr_login.url)
+                qr.make(fit=True)
+                qr.print_ascii(invert=True)
+                try:
+                    await qr_login.wait(timeout=120)
+                    authorized = True
+                    break
+                except asyncio.TimeoutError:
+                    print("\nQR expired before approval. Generating a fresh QR...")
+                except SessionPasswordNeededError:
+                    password = getpass.getpass(
+                        "Telegram 2-Step Verification password (hidden): "
+                    )
+                    await client.sign_in(password=password)
+                    authorized = True
+                    break
+
+            if not authorized and not await client.is_user_authorized():
+                raise SystemExit(
+                    "QR login timed out 3 times. No session was created. "
+                    "Check network, then try again later; do not repeatedly retry."
                 )
-                await client.sign_in(password=password)
 
         me = await client.get_me()
         session = client.session.save()
@@ -60,8 +80,14 @@ async def main():
         print(session)
         print("\nNever paste the session string into ChatGPT, GitHub, screenshots, or public chats.")
         print("If exposed, revoke the session in Telegram Settings > Devices.")
+    except (OSError, asyncio.TimeoutError) as exc:
+        raise SystemExit(
+            f"Network/connection problem: {type(exc).__name__}. "
+            "Check your internet connection and try later."
+        )
     finally:
-        await client.disconnect()
+        if client.is_connected():
+            await client.disconnect()
 
 
 if __name__ == "__main__":
